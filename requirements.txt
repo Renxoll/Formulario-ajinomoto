@@ -1,0 +1,13 @@
+# --- Dashboard ---
+# Probado en Python 3.14 con streamlit 1.63 + altair 6.2.
+# altair 6 es el primero que importa en Python 3.13/3.14 (altair 5.x rompe).
+streamlit>=1.50,<2
+altair>=6,<7
+pandas>=2.2.3,<3
+openpyxl>=3.1.5
+
+# --- Automatización web ---
+playwright>=1.47
+
+# Después de instalar, ejecutar UNA vez:
+#   playwright install chromium

@@ -1,0 +1,19 @@
+# Datos y credenciales
+data/*.xlsx
+data/*.csv
+fotos/*
+!fotos/.gitkeep
+!data/.gitkeep
+
+# Perfil persistente del navegador (sesión de Google logueada)
+.pw-user-data/
+
+# Artefactos temporales que genera el dashboard para lanzar la automatización
+.runtime/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
