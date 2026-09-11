@@ -60,6 +60,55 @@ DASHBOARD_CACHE_TTL_S = 60
 TIMESTAMP_COLUMNS = ["Marca temporal", "Timestamp", "Hora de inicio", "Hora de finalización"]
 
 # --------------------------------------------------------------------------- #
+# Dimensiones filtrables — detección automática
+# --------------------------------------------------------------------------- #
+# El dashboard NO tiene una lista fija de "Zona"/"Mercado"/"Tipo": cualquier
+# columna de texto con pocos valores distintos se ofrece sola como filtro y
+# desglose (ver data_loader.detect_dimensions). Así, si el Form agrega o
+# saca una pregunta tipo dropdown/radio, el Sheet cambia y el dashboard se
+# adapta sin tocar código.
+#
+# Estas son las columnas que NUNCA deben tratarse como dimensión (texto
+# libre o identificador). "Promotor" SÍ puede ser dimensión (filtro y tarjeta
+# de KPI) — su desglose en gráfico de barras se omite a propósito porque ya
+# tiene su propia vista en "🏅 Top promotores" (ver tab_resumen.py).
+NON_DIM_COLUMNS = {
+    "Marca temporal", "Fecha", "Cargue foto", "Observaciones",
+    "Cantidad de Canje", "Usuario (Gmail)",
+}
+
+# Nombre "lindo" para la tarjeta de KPI de cada dimensión (cuántos valores
+# distintos tiene). Si una dimensión nueva aparece y no está acá, se genera
+# un plural automático ("Región" -> "Regiones") — no hace falta editar esto
+# para que el dashboard siga funcionando, es sólo para pulir el texto.
+DIM_DISPLAY_NAMES = {
+    "Mercado": "Mercados visitados",
+    "Promotor": "Promotores",
+}
+# Por encima de este número de valores distintos, una columna de texto ya no
+# es "categórica" (es más bien texto libre) y no se ofrece como filtro.
+MAX_DIM_CARDINALITY = 30
+
+# --------------------------------------------------------------------------- #
+# Nombres de promotor ("Usuario (Gmail)") — normalización para mostrar
+# --------------------------------------------------------------------------- #
+# El campo no es un selector de cuenta de Google: la gente escribe su nombre
+# a mano, con mayúsculas/espacios/typos inconsistentes. data_loader arma una
+# columna derivada "Promotor" para mostrar:
+#   1. recorta espacios y pone Mayúscula Inicial (los emails quedan en minúscula)
+#   2. si el resultado normalizado está en USUARIO_ALIASES, se reemplaza por el
+#      canónico de acá abajo.
+# Esto es sólo VISUAL — la columna original "Usuario (Gmail)" no se toca.
+# Sumá acá cualquier variante nueva que veas repetida en la pestaña Detalle
+# (comparación EXACTA, ya normalizada — mirá cómo quedan las claves de ejemplo).
+USUARIO_ALIASES = {
+    "Yesenia Zevallos": "Yessenia Zevallos Remigio",
+    "Yesenia Zevallos Remigio": "Yessenia Zevallos Remigio",
+    "Yessenia Zevallos": "Yessenia Zevallos Remigio",
+    "Yessenia Zevallos Remigio": "Yessenia Zevallos Remigio",
+}
+
+# --------------------------------------------------------------------------- #
 # Google Form
 # --------------------------------------------------------------------------- #
 # TODO: reemplazar por la URL real del formulario (la de "viewform", NO la de edición).

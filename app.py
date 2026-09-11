@@ -18,6 +18,7 @@ Ejecutar:
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -56,6 +57,30 @@ def cargar() -> pd.DataFrame:
     return data_loader.load_responses()
 
 
+# Auto-actualización: cada TTL segundos fuerza un rerun completo de la app,
+# así las respuestas nuevas del Sheet (filas, mercados, promotores nuevos…)
+# entran solas, sin que alguien tenga que tocar el botón ni el código.
+#
+# `run_every` hace que Streamlit re-ejecute este fragmento cada TTL segundos,
+# PERO la primera ejecución ocurre igual, en el momento (síncrono) en que el
+# script llega a este punto. Si llamáramos a st.rerun() sin condición, ese
+# primer llamado dispararía un rerun completo de inmediato, que al volver a
+# ejecutar el script llegaría de nuevo acá y volvería a hacer rerun — un
+# bucle infinito que nunca termina de dibujar la página. Por eso se guarda en
+# session_state cuándo fue el último rerun real y sólo se dispara uno nuevo
+# si ya pasó el intervalo completo.
+_AUTO_REFRESH_KEY = "_last_auto_refresh_ts"
+
+
+@st.fragment(run_every=f"{config.DASHBOARD_CACHE_TTL_S}s")
+def _auto_refresh_tick() -> None:
+    now = time.monotonic()
+    last = st.session_state.setdefault(_AUTO_REFRESH_KEY, now)
+    if now - last >= config.DASHBOARD_CACHE_TTL_S:
+        st.session_state[_AUTO_REFRESH_KEY] = now
+        st.rerun()
+
+
 # --------------------------------------------------------------------------- #
 # Header
 # --------------------------------------------------------------------------- #
@@ -64,15 +89,25 @@ with h_izq:
     st.title("Formulario Ajinomoto")
     st.caption("Análisis de canjes en vivo desde el Google Sheet + carga automatizada al Form.")
 with h_der:
-    if st.button("🔄 Actualizar", width="stretch"):
-        cargar.clear()
-        st.rerun()
+    bc1, bc2 = st.columns([3, 2])
+    with bc1:
+        if st.button("🔄 Actualizar", width="stretch"):
+            cargar.clear()
+            st.rerun()
+    with bc2:
+        auto_refresh = st.toggle(
+            "Auto", value=True,
+            help=f"Vuelve a leer el Sheet solo cada {config.DASHBOARD_CACHE_TTL_S}s.",
+        )
     st.markdown(
         f"<div style='text-align:right'><span class='chip'>Actualizado "
         f"{datetime.now():%H:%M:%S}</span></div>",
         unsafe_allow_html=True,
     )
 st.markdown("<div class='aji-rule'></div>", unsafe_allow_html=True)
+
+if auto_refresh:
+    _auto_refresh_tick()
 
 try:
     df = cargar()
@@ -88,29 +123,24 @@ if missing := df.attrs.get("missing_columns"):
 # --------------------------------------------------------------------------- #
 st.sidebar.title("Filtros")
 
-# Filtros de dimensión adaptativos: sólo se muestran para las columnas que
-# realmente trae el Sheet (hoy el Form sólo pregunta "Mercado"; si en el
-# futuro vuelve "Zona"/"Tipo", aparecen solos).
-DIM_COLUMNS = ("Zona", "Mercado", "Tipo")
-dims_presentes = [d for d in DIM_COLUMNS if d in df.columns]
+# Filtros de dimensión: se DETECTAN, no están hardcodeados. Cualquier columna
+# de texto con pocos valores distintos aparece sola como filtro — si el Form
+# agrega o saca una pregunta, el sidebar se adapta sin tocar código.
+dims_presentes = data_loader.detect_dimensions(df)
 
 if st.sidebar.button("Limpiar filtros", width="stretch"):
     for d in dims_presentes:
-        st.session_state.pop(f"f_{d.lower()}", None)
+        st.session_state.pop(f"filtro::{d}", None)
     st.session_state.pop("f_fechas", None)
     st.rerun()
 
-seleccion: dict[str, list[str]] = {}
-for dim in dims_presentes:
-    seleccion[dim] = st.sidebar.multiselect(
-        dim, data_loader.unique_sorted(df[dim]), key=f"f_{dim.lower()}"
-    )
-zonas_sel = seleccion.get("Zona", [])
-mercados_sel = seleccion.get("Mercado", [])
-tipos_sel = seleccion.get("Tipo", [])
+seleccion: dict[str, list[str]] = {
+    dim: st.sidebar.multiselect(dim, data_loader.unique_sorted(df[dim]), key=f"filtro::{dim}")
+    for dim in dims_presentes
+}
 
 # Filtros categóricos aplicados (sin fecha) — base para el período anterior.
-df_cat = data_loader.apply_filters(df, zonas=zonas_sel, mercados=mercados_sel, tipos=tipos_sel)
+df_cat = data_loader.apply_filters(df, filtros=seleccion)
 
 desde = hasta = None
 if "Fecha" in df and df["Fecha"].notna().any():
@@ -130,7 +160,7 @@ if desde and hasta:
     prev_hasta = desde - timedelta(days=1)
     df_prev = data_loader.slice_period(df_cat, prev_hasta - span, prev_hasta)
 
-n_filtros = sum(bool(x) for x in (zonas_sel, mercados_sel, tipos_sel))
+n_filtros = sum(bool(v) for v in seleccion.values())
 st.sidebar.divider()
 st.sidebar.caption(
     f"**{len(df_f):,}** de {len(df):,} respuestas"
@@ -155,7 +185,7 @@ if df.empty:
 t_resumen, t_detalle, t_carga = st.tabs(["📈 Resumen", "🗂️ Detalle", "🤖 Carga al Form"])
 
 with t_resumen:
-    tab_resumen.render(df_f, df_prev)
+    tab_resumen.render(df_f, df_prev, dims_presentes)
 
 with t_detalle:
     tab_detalle.render(df_f)

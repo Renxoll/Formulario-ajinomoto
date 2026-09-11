@@ -29,9 +29,33 @@ COLUMN_ALIASES = {
 # Valores de "Canje Realizado" que NO cuentan como canje.
 _CANJE_NEGATIVOS = {"", "no", "n", "false", "0", "ninguno", "sin canje", "-", "nan"}
 
+USUARIO_COLUMN = "Usuario (Gmail)"
+PROMOTOR_COLUMN = "Promotor"
+
 
 class DataLoadError(Exception):
     """Error controlado al leer o validar los datos."""
+
+
+def _normalizar_nombre(valor) -> str | None:
+    """
+    Limpieza puramente visual de "Usuario (Gmail)": recorta espacios repetidos
+    y capitaliza (los emails quedan en minúscula). No decide identidad.
+    """
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+        return None
+    texto = " ".join(str(valor).split())
+    if not texto:
+        return None
+    return texto.lower() if "@" in texto else texto.title()
+
+
+def _promotor(df: pd.DataFrame) -> pd.Series | None:
+    """Columna "Promotor": nombre normalizado + alias configurables (config.USUARIO_ALIASES)."""
+    if USUARIO_COLUMN not in df.columns:
+        return None
+    nombre = df[USUARIO_COLUMN].map(_normalizar_nombre)
+    return nombre.map(lambda v: config.USUARIO_ALIASES.get(v, v) if v else v).astype("string")
 
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -94,11 +118,39 @@ def _finalize(df: pd.DataFrame) -> pd.DataFrame:
         s = df["Canje Realizado"].astype("string").str.strip()
         df["_canje_bool"] = s.notna() & ~s.str.lower().isin(_CANJE_NEGATIVOS)
 
-    for col in ("Zona", "Mercado", "Tipo"):
-        if col in df.columns:
+    # Limpia toda columna de texto corto que exista (Zona/Mercado/Tipo hoy;
+    # cualquier otra que el Form agregue mañana queda igual de prolija).
+    for col in df.columns:
+        if col in (USUARIO_COLUMN, "Observaciones") or col.startswith("_"):
+            continue
+        if df[col].dtype == object or str(df[col].dtype) == "string":
             df[col] = df[col].astype("string").str.strip().replace({"": pd.NA})
 
+    promotor = _promotor(df)
+    if promotor is not None:
+        df[PROMOTOR_COLUMN] = promotor
+
     return df
+
+
+def detect_dimensions(df: pd.DataFrame) -> list[str]:
+    """
+    Columnas categóricas filtrables/desglosables, detectadas automáticamente
+    (texto, con más de 1 y no demasiados valores distintos, que no sean texto
+    libre/identificador — ver config.NON_DIM_COLUMNS). Sirve tanto para los
+    filtros del sidebar como para el desglose de la pestaña Resumen: si el
+    Form agrega o quita una pregunta tipo dropdown/radio, se refleja solo.
+    """
+    dims = []
+    for col in df.columns:
+        if col.startswith("_") or col in config.NON_DIM_COLUMNS:
+            continue
+        if not (df[col].dtype == object or str(df[col].dtype) == "string"):
+            continue
+        n = df[col].nunique(dropna=True)
+        if 1 < n <= config.MAX_DIM_CARDINALITY:
+            dims.append(col)
+    return dims
 
 
 def load_responses() -> pd.DataFrame:
@@ -161,29 +213,18 @@ def unique_sorted(series: pd.Series) -> list:
     return sorted(series.dropna().unique().tolist())
 
 
-def apply_filters(
-    df: pd.DataFrame,
-    zonas: list[str] | None = None,
-    mercados: list[str] | None = None,
-    tipos: list[str] | None = None,
-    fecha_desde=None,
-    fecha_hasta=None,
-) -> pd.DataFrame:
-    """Devuelve una copia del DataFrame aplicando los filtros del sidebar."""
+def apply_filters(df: pd.DataFrame, filtros: dict[str, list[str]] | None = None) -> pd.DataFrame:
+    """
+    Devuelve una copia del DataFrame quedándose con las filas cuyo valor, en
+    cada columna de `filtros`, está entre los seleccionados. `filtros` es
+    {columna: [valores]}; una columna con lista vacía no filtra. Genérico a
+    propósito: funciona para cualquier dimensión que detect_dimensions() haya
+    encontrado, no sólo Zona/Mercado/Tipo.
+    """
     out = df
-
-    if zonas:
-        out = out[out["Zona"].isin(zonas)]
-    if mercados:
-        out = out[out["Mercado"].isin(mercados)]
-    if tipos:
-        out = out[out["Tipo"].isin(tipos)]
-
-    if fecha_desde is not None and "Fecha" in out.columns:
-        out = out[out["Fecha"] >= pd.Timestamp(fecha_desde)]
-    if fecha_hasta is not None and "Fecha" in out.columns:
-        out = out[out["Fecha"] <= pd.Timestamp(fecha_hasta)]
-
+    for col, valores in (filtros or {}).items():
+        if valores and col in out.columns:
+            out = out[out[col].isin(valores)]
     return out.copy()
 
 
@@ -228,7 +269,7 @@ def daily_canjes(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def breakdown(df: pd.DataFrame, dim: str) -> pd.DataFrame:
-    """Agrega por una dimensión ('Zona'/'Mercado'/'Tipo'): Registros, Canjes, Cantidad."""
+    """Agrega por cualquier columna categórica (ver detect_dimensions): Registros, Canjes, Cantidad."""
     if dim not in df.columns or df.empty:
         return pd.DataFrame(columns=[dim, "Registros", "Canjes", "Cantidad"])
 
