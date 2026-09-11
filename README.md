@@ -1,4 +1,4 @@
-# Dashboard Formulario Faurus + Carga automática a Google Forms
+# Dashboard Formulario Ajinomoto + Carga automática a Google Forms
 
 Aplicación local (Streamlit) que:
 
@@ -19,10 +19,15 @@ Aplicación local (Streamlit) que:
 
 ```
 juanpablo-dashboard/
-├── app.py               # Dashboard Streamlit (3 pestañas) + lanzador de la carga
-├── automator.py         # Automatización Playwright (importable y como CLI)
-├── data_loader.py       # load_responses() (Sheet) + helpers de filtros/series/desgloses
-├── config.py            # TODO lo configurable: Sheet, URL del Form, mapeo de campos
+├── app.py               # Armazón: página, estilos, carga de datos, filtros del sidebar
+├── tab_resumen.py        # Pestaña "📈 Resumen": KPIs, evolución, desgloses
+├── tab_detalle.py        # Pestaña "🗂️ Detalle": tabla filtrable + descarga CSV
+├── tab_carga.py           # Pestaña "🤖 Carga al Form": lanza automator.py
+├── theme.py              # Paleta e identidad visual (Ajinomoto) compartida por las pestañas
+├── automator.py          # Automatización Playwright (importable y como CLI)
+├── data_loader.py        # load_responses() (Sheet) + helpers de filtros/series/desgloses
+├── config.py              # TODO lo configurable: Sheet, URL del Form, mapeo de campos
+├── ajinomoto_logo.svg
 ├── requirements.txt
 ├── README.md
 ├── .gitignore
@@ -58,7 +63,7 @@ playwright install chromium
 ### Dashboard — lectura del Google Sheet
 
 Ya viene configurado con el Sheet
-(`RESPONSES_SHEET_ID = "1Mpxmkc_9dP5HLIsPG0bWMqmgGmiCejG_MF2YYhGp_d0"`), compartido
+(`RESPONSES_SHEET_ID = "1q8RWCv2REfFn-rKeKlPSJ7odWFBYzBOKV7xRiSX63Yo"`), compartido
 como **"Cualquiera con el enlace: Lector"**. La lectura usa la URL
 `gviz/tq?tqx=out:csv` (verificada que funciona con ese modo de compartir).
 
@@ -67,20 +72,31 @@ como **"Cualquiera con el enlace: Lector"**. La lectura usa la URL
 | ID del Google Sheet | `RESPONSES_SHEET_ID` | En la URL: `.../spreadsheets/d/`**`<ID>`**`/edit`. |
 | Pestaña (gid) | `RESPONSES_SHEET_GID` | El `gid=` de la URL (default `0`). |
 | Archivo local en vez del Sheet | `RESPONSES_LOCAL_OVERRIDE` | Ruta a un `.csv`/`.xlsx` para trabajar sin conexión. `""` = leer del Sheet. |
-| Refresco del cache | `DASHBOARD_CACHE_TTL_S` | Segundos antes de releer el Sheet (default 300). |
+| Refresco del cache | `DASHBOARD_CACHE_TTL_S` | Segundos antes de releer el Sheet (default 60). |
 
-> Columnas confirmadas: `Marca temporal`, `Fecha`, `Usuario (Gmail)`, `Tipo`,
-> `Zona`, `Mercado`, `Canje Realizado`, `Número de puesto`, `Nombre del puesto`,
-> `Cargue foto`, `Observaciones`, `Canatidad de Canje` (coinciden con
-> `FIELD_TITLES`). Hoy el Sheet sólo tiene el encabezado: el dashboard se puebla
-> a medida que se cargan respuestas.
+> Columnas del Sheet (Form simplificado, ya no pregunta Fecha/Tipo/Zona/Número
+> de puesto/Nombre del puesto): `Marca temporal`, `Usuario (Gmail)`, `Mercado`,
+> `Canje Realizado`, `Cargue foto`, `Observaciones`, `Cantidad de Canje`.
+>
+> **Filtros y desgloses son adaptativos**: el sidebar y la pestaña Resumen sólo
+> muestran Zona/Tipo si esas columnas existen en el Sheet. Si el Form vuelve a
+> preguntarlas, aparecen solas — no hace falta tocar el código.
+>
+> Notas de robustez (las maneja `data_loader`):
+> - Los encabezados vienen con un **espacio al final** → se recortan.
+> - Si el Form renombra una pregunta, agregá el par viejo→nuevo en
+>   `data_loader.COLUMN_ALIASES` (ya está `Canatidad de Canje` → `Cantidad de Canje`).
+> - **"Fecha" no existe en este Sheet**: se deriva de "Marca temporal" (el sello
+>   automático del Form) para que el filtro de rango de fechas funcione igual.
+> - **"Canje Realizado"** en este Form indica *qué* canje se hizo (no un sí/no):
+>   cuenta como canje toda fila con ese campo no vacío.
 
 ### Automatización
 
 | Qué | Dónde | Nota |
 |---|---|---|
 | URL del formulario | `GOOGLE_FORM_URL` | La de **`/viewform`**, no la de edición. **Falta completarla.** |
-| Mapeo columnas → preguntas | `FIELD_TITLES` | Texto **exacto** del enunciado (tildes, paréntesis, el typo *"Canatidad"*). |
+| Mapeo columnas → preguntas | `FIELD_TITLES` | Texto **exacto** del enunciado (tildes, paréntesis). |
 | Tipo de cada pregunta | `FIELD_TYPES` | `text` / `date` / `radio` / `dropdown` / `file`. |
 | Formato de fecha del Form | `FORM_DATE_FORMAT` | `"iso"` (`2026-09-05`) o `"dmy"` (`05/09/2026`). |
 | Ver navegador / velocidad | `HEADLESS`, `SLOW_MO_MS` | Dejá `HEADLESS=False` al principio. |
@@ -174,7 +190,8 @@ playwright codegen "https://docs.google.com/forms/d/e/XXXX/viewform"
 |---|---|
 | `No se pudo leer el Google Sheet` | ID/gid mal, o el Sheet dejó de estar compartido por enlace. Verificá `RESPONSES_SHEET_ID` y el modo de compartir. |
 | `El Google Sheet respondió con contenido inesperado (¿pide iniciar sesión?)` | El Sheet es privado. Compartilo como "Cualquiera con el enlace: Lector" o usá `RESPONSES_LOCAL_OVERRIDE`. |
-| El dashboard no muestra respuestas nuevas | Cache (5 min por defecto). Pulsá **🔄 Actualizar**. |
+| El dashboard no muestra respuestas nuevas | 1) Cache (60 s). Pulsá **🔄 Actualizar**. 2) Revisá el **rango de fechas** del sidebar: si lo achicaste, filas fuera del rango no aparecen (las que no tienen fecha propia usan la de "Marca temporal"). |
+| Los KPIs de cantidad dan 0 / falta una columna | El Form renombró la pregunta. Agregá el par viejo→nuevo en `data_loader.COLUMN_ALIASES`. |
 | Botón de carga deshabilitado | Falta `GOOGLE_FORM_URL`, o los filtros dejaron 0 filas. |
 | `No existe la imagen: …` | La columna «Cargue foto» no apunta a un archivo local (¿es una URL de Drive?). |
 | `Opción 'X' no encontrada en dropdown` | El valor del Sheet no coincide con la opción del Form. Revisá mayúsculas/tildes/espacios. |

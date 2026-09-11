@@ -17,61 +17,86 @@ import config
 # Columnas mínimas que esperamos encontrar.
 EXPECTED_COLUMNS = list(config.FIELD_TITLES.keys())
 
+# Columna del Form que puede aparecer con nombres distintos (el typo se corrigió).
+QTY_COLUMN = "Cantidad de Canje"
+
+# Renombres de columnas que cambiaron de nombre en el Form/Sheet a lo largo del
+# tiempo. Se aplican tras normalizar (quitar espacios).
+COLUMN_ALIASES = {
+    "Canatidad de Canje": QTY_COLUMN,   # el typo original del Form fue corregido
+}
+
+# Valores de "Canje Realizado" que NO cuentan como canje.
+_CANJE_NEGATIVOS = {"", "no", "n", "false", "0", "ninguno", "sin canje", "-", "nan"}
+
 
 class DataLoadError(Exception):
     """Error controlado al leer o validar los datos."""
 
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Quita espacios sobrantes en los nombres de columna."""
-    return df.rename(columns=lambda c: str(c).strip())
+    """Quita espacios sobrantes en los nombres de columna y aplica alias."""
+    df = df.rename(columns=lambda c: str(c).strip())
+    ren = {k: v for k, v in COLUMN_ALIASES.items() if k in df.columns and v not in df.columns}
+    return df.rename(columns=ren)
 
 
 def _finalize(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Tipado y columnas auxiliares comunes a ambas fuentes:
+    Tipado y columnas auxiliares:
 
-    - Normaliza nombres de columnas.
+    - Normaliza nombres de columnas (+ alias) y espacios en los valores de texto.
     - Marca 'missing_columns' (aviso, no error).
-    - "Fecha" y las columnas de timestamp del Form -> datetime.
-    - "Canatidad de Canje" -> numérico.
-    - "Canje Realizado" -> booleano auxiliar "_canje_bool".
-    - Limpia strings de las categóricas usadas en filtros.
+    - "Marca temporal" -> datetime. "Fecha" -> datetime, y si viene vacía se
+      completa con la fecha del envío (Marca temporal) para que la fila no
+      desaparezca de filtros ni gráficos.
+    - "Cantidad de Canje" -> numérico.
+    - "_canje_bool": True si "Canje Realizado" tiene un valor real (no vacío / no
+      un "no"). En este Form el campo indica QUÉ canje se hizo, no un sí/no.
     """
     df = _normalize_columns(df)
+
+    # Los encabezados y celdas del Form suelen venir con espacios al final.
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = df[col].map(lambda v: v.strip() if isinstance(v, str) else v)
 
     missing = [c for c in EXPECTED_COLUMNS if c not in df.columns]
     if missing:
         df.attrs["missing_columns"] = missing
 
+    # --- Marca temporal (sello automático del Form: SIEMPRE presente) ------ #
+    marca = None
+    for col in config.TIMESTAMP_COLUMNS:
+        if col in df.columns:
+            df[col] = pd.to_datetime(
+                df[col], errors="coerce", dayfirst=config.DATE_DAYFIRST
+            )
+            if marca is None:
+                marca = df[col]
+
+    # --- Fecha efectiva -------------------------------------------------- #
+    # "Fecha" es un campo que el encuestador suele dejar vacío. Se completa con
+    # la fecha del envío para no perder esas filas.
     if "Fecha" in df.columns:
         df["Fecha"] = pd.to_datetime(
             df["Fecha"], errors="coerce", dayfirst=config.DATE_DAYFIRST
         )
+        if marca is not None:
+            df["Fecha"] = df["Fecha"].fillna(marca.dt.normalize())
+    elif marca is not None:
+        df["Fecha"] = marca.dt.normalize()
 
-    # Columnas automáticas del Form (marca temporal): útiles como eje temporal
-    # alternativo, pero no son preguntas.
-    for col in config.TIMESTAMP_COLUMNS:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce", dayfirst=False)
-
-    if "Canatidad de Canje" in df.columns:
-        df["Canatidad de Canje"] = pd.to_numeric(
-            df["Canatidad de Canje"], errors="coerce"
-        )
+    if QTY_COLUMN in df.columns:
+        df[QTY_COLUMN] = pd.to_numeric(df[QTY_COLUMN], errors="coerce")
 
     if "Canje Realizado" in df.columns:
-        df["_canje_bool"] = (
-            df["Canje Realizado"]
-            .astype(str)
-            .str.strip()
-            .str.lower()
-            .isin({"sí", "si", "s", "true", "1", "yes", "y", "verdadero"})
-        )
+        s = df["Canje Realizado"].astype("string").str.strip()
+        df["_canje_bool"] = s.notna() & ~s.str.lower().isin(_CANJE_NEGATIVOS)
 
     for col in ("Zona", "Mercado", "Tipo"):
         if col in df.columns:
-            df[col] = df[col].astype("string").str.strip()
+            df[col] = df[col].astype("string").str.strip().replace({"": pd.NA})
 
     return df
 
@@ -168,7 +193,7 @@ def daily_canjes(df: pd.DataFrame) -> pd.DataFrame:
 
     Devuelve columnas: Fecha | Canjes | Cantidad | Media7 | Acumulado
       - Canjes:    nº de registros con canje realizado ese día
-      - Cantidad:  suma de "Canatidad de Canje" ese día
+      - Cantidad:  suma de "Cantidad de Canje" ese día
       - Media7:    media móvil de 7 días de Canjes
       - Acumulado: suma acumulada de Cantidad
     Rellena los días sin registros con 0 (para que la línea no "salte").
@@ -186,8 +211,8 @@ def daily_canjes(df: pd.DataFrame) -> pd.DataFrame:
         base["_c"] = 1  # sin la columna, cada fila cuenta como un canje
     canjes = base.groupby("Fecha")["_c"].sum().rename("Canjes")
     cantidad = (
-        base.groupby("Fecha")["Canatidad de Canje"].sum().rename("Cantidad")
-        if "Canatidad de Canje" in base.columns
+        base.groupby("Fecha")[QTY_COLUMN].sum().rename("Cantidad")
+        if QTY_COLUMN in base.columns
         else pd.Series(0.0, index=canjes.index, name="Cantidad")
     )
 
@@ -212,19 +237,20 @@ def breakdown(df: pd.DataFrame, dim: str) -> pd.DataFrame:
         {
             "Registros": g.size(),
             "Canjes": g["_canje_bool"].sum() if "_canje_bool" in df else g.size(),
-            "Cantidad": (
-                g["Canatidad de Canje"].sum()
-                if "Canatidad de Canje" in df
-                else 0
-            ),
+            "Cantidad": g[QTY_COLUMN].sum() if QTY_COLUMN in df else 0,
         }
     ).reset_index()
     return out.sort_values("Registros", ascending=False)
 
 
 def slice_period(df: pd.DataFrame, desde, hasta) -> pd.DataFrame:
-    """Filas cuya 'Fecha' cae en [desde, hasta] (fechas date, inclusivo)."""
+    """
+    Filas cuya 'Fecha' cae en [desde, hasta] (inclusivo).
+    Las filas SIN fecha (NaT) se conservan siempre: nunca deben desaparecer
+    silenciosamente por el filtro de rango.
+    """
     if "Fecha" not in df.columns or desde is None or hasta is None:
         return df
-    f = df["Fecha"].dt.date
-    return df[(f >= desde) & (f <= hasta)].copy()
+    f = df["Fecha"]
+    keep = f.isna() | ((f.dt.date >= desde) & (f.dt.date <= hasta))
+    return df[keep].copy()

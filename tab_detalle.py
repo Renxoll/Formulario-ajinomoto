@@ -42,6 +42,6 @@ def render(df_f: pd.DataFrame) -> None:
     st.download_button(
         "⬇️ Descargar CSV",
         data=view.to_csv(index=False).encode("utf-8-sig"),
-        file_name="formulario_faurus.csv",
+        file_name="formulario_ajinomoto.csv",
         mime="text/csv",
     )

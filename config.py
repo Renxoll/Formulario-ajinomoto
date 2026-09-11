@@ -31,7 +31,7 @@ PHOTO_BASE_DIR = PHOTOS_DIR
 # --------------------------------------------------------------------------- #
 # El ID sale de la URL del Sheet:
 #   https://docs.google.com/spreadsheets/d/<ESTO_ES_EL_ID>/edit#gid=<GID>
-RESPONSES_SHEET_ID = "1Mpxmkc_9dP5HLIsPG0bWMqmgGmiCejG_MF2YYhGp_d0"
+RESPONSES_SHEET_ID = "1q8RWCv2REfFn-rKeKlPSJ7odWFBYzBOKV7xRiSX63Yo"
 RESPONSES_SHEET_GID = "0"
 
 # URL de lectura como CSV.
@@ -52,7 +52,9 @@ RESPONSES_CSV_URL_ALT = (
 RESPONSES_LOCAL_OVERRIDE = ""
 
 # Cada cuántos segundos se vuelve a leer el Sheet (cache del dashboard).
-DASHBOARD_CACHE_TTL_S = 300
+# Bajo a propósito: se espera ver las respuestas nuevas casi al instante.
+# Igual está el botón "🔄 Actualizar" para forzar la relectura.
+DASHBOARD_CACHE_TTL_S = 60
 
 # Columnas que el Form agrega solo y que NO son preguntas; se ignoran en KPIs.
 TIMESTAMP_COLUMNS = ["Marca temporal", "Timestamp", "Hora de inicio", "Hora de finalización"]
@@ -91,19 +93,21 @@ FORM_DATE_FORMAT = "iso"
 # Google Form (sin el asterisco rojo de "obligatorio").
 #
 # TODO: abrir el formulario y verificar que estos textos coinciden carácter por
-#       carácter (tildes, mayúsculas, paréntesis, el typo "Canatidad", etc.).
+#       carácter (tildes, mayúsculas, paréntesis, etc.).
+# NOTA: el Sheet trae los encabezados con un espacio al final y algunos podrían
+#       cambiar de nombre; data_loader los normaliza (ver COLUMN_ALIASES).
+#
+# El Form se simplificó: ya NO tiene "Fecha", "Tipo", "Zona", "Número de
+# puesto" ni "Nombre del puesto" (no aparecen en el Sheet). Si alguna vuelve a
+# agregarse, sumala acá y el dashboard la va a mostrar automáticamente
+# (filtros y desgloses son adaptativos a las columnas presentes).
 FIELD_TITLES = {
-    "Fecha":              "Fecha",
     "Usuario (Gmail)":    "Usuario (Gmail)",
-    "Tipo":               "Tipo",
-    "Zona":               "Zona",
     "Mercado":            "Mercado",
     "Canje Realizado":    "Canje Realizado",
-    "Número de puesto":   "Número de puesto",
-    "Nombre del puesto":  "Nombre del puesto",
     "Cargue foto":        "Cargue foto",
     "Observaciones":      "Observaciones",
-    "Canatidad de Canje": "Canatidad de Canje",   # (sic) el typo está en el formulario
+    "Cantidad de Canje":  "Cantidad de Canje",
 }
 
 # --------------------------------------------------------------------------- #
@@ -115,43 +119,31 @@ FIELD_TITLES = {
 #   "dropdown"  -> lista desplegable
 #   "file"      -> subida de archivo (foto)
 #
-# TODO: confirmar cada tipo. Por ejemplo, "Tipo"/"Zona"/"Mercado" podrían ser
-#       radio en lugar de dropdown según cómo se diseñó el formulario.
+# TODO: confirmar cada tipo. "Mercado" podría ser radio en lugar de dropdown
+#       según cómo se diseñó el formulario.
 FIELD_TYPES = {
-    "Fecha":              "date",
     "Usuario (Gmail)":    "text",
-    "Tipo":               "dropdown",
-    "Zona":               "dropdown",
     "Mercado":            "dropdown",
     "Canje Realizado":    "radio",
-    "Número de puesto":   "text",
-    "Nombre del puesto":  "text",
     "Cargue foto":        "file",
     "Observaciones":      "text",
-    "Canatidad de Canje": "text",
+    "Cantidad de Canje":  "text",
 }
 
 # Columnas que, si vienen vacías en la fila, simplemente se saltan.
 OPTIONAL_FIELDS = {
-    "Número de puesto",
-    "Nombre del puesto",
     "Observaciones",
 }
 
 # Orden en el que se rellenan las preguntas (útil si el formulario tiene
 # validaciones que dependen del orden). Debe contener las mismas claves que arriba.
 FIELD_ORDER = [
-    "Fecha",
     "Usuario (Gmail)",
-    "Tipo",
-    "Zona",
     "Mercado",
     "Canje Realizado",
-    "Número de puesto",
-    "Nombre del puesto",
     "Cargue foto",
     "Observaciones",
-    "Canatidad de Canje",
+    "Cantidad de Canje",
 ]
 
 # Columna que contiene la ruta / nombre de archivo de la imagen a subir.

@@ -42,7 +42,7 @@ def kpis(d: pd.DataFrame) -> dict:
         "n": n,
         "canjes": canjes,
         "tasa": (canjes / n * 100) if n else 0.0,
-        "cant": float(d["Canatidad de Canje"].sum()) if "Canatidad de Canje" in d else 0.0,
+        "cant": float(d["Cantidad de Canje"].sum()) if "Cantidad de Canje" in d else 0.0,
         "merc": d["Mercado"].nunique() if "Mercado" in d else 0,
         "zonas": d["Zona"].nunique() if "Zona" in d else 0,
     }
@@ -62,12 +62,21 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None) -> None:
     k = kpis(df_f)
     kp = kpis(df_prev) if df_prev is not None and len(df_prev) else None
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Respuestas", f"{k['n']:,}", delta(k["n"], kp["n"] if kp else None))
-    c2.metric("Canjes realizados", f"{k['canjes']:,}", delta(k["canjes"], kp["canjes"] if kp else None))
-    c3.metric("Tasa de canje", f"{k['tasa']:.0f}%", delta(k["tasa"], kp["tasa"] if kp else None, pp=True))
-    c4.metric("Cantidad total", f"{k['cant']:,.0f}", delta(k["cant"], kp["cant"] if kp else None))
-    c5.metric("Mercados / Zonas", f"{k['merc']} / {k['zonas']}")
+    # Tarjetas base + una por cada dimensión que el Sheet realmente traiga
+    # (hoy sólo "Mercado"; si vuelve "Zona" aparece sola, sin huecos ni "/ 0").
+    items = [
+        ("Respuestas", f"{k['n']:,}", delta(k["n"], kp["n"] if kp else None)),
+        ("Canjes realizados", f"{k['canjes']:,}", delta(k["canjes"], kp["canjes"] if kp else None)),
+        ("Tasa de canje", f"{k['tasa']:.0f}%", delta(k["tasa"], kp["tasa"] if kp else None, pp=True)),
+        ("Cantidad total", f"{k['cant']:,.0f}", delta(k["cant"], kp["cant"] if kp else None)),
+    ]
+    if "Mercado" in df_f.columns:
+        items.append(("Mercados", f"{k['merc']}", None))
+    if "Zona" in df_f.columns:
+        items.append(("Zonas", f"{k['zonas']}", None))
+
+    for col, (label, value, dl) in zip(st.columns(len(items)), items):
+        col.metric(label, value, dl)
     if kp:
         st.caption("Los deltas comparan contra el período inmediatamente anterior de igual duración.")
 
@@ -107,45 +116,43 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None) -> None:
             st.altair_chart(style_chart(area, 260), width="stretch")
         with g2:
             st.markdown("**Distribución de la cantidad por registro**")
-            if "Canatidad de Canje" in df_f and df_f["Canatidad de Canje"].notna().any():
-                hist = alt.Chart(df_f.dropna(subset=["Canatidad de Canje"])).mark_bar(
+            if "Cantidad de Canje" in df_f and df_f["Cantidad de Canje"].notna().any():
+                hist = alt.Chart(df_f.dropna(subset=["Cantidad de Canje"])).mark_bar(
                     color=ACCENT, opacity=0.8
                 ).encode(
-                    x=alt.X("Canatidad de Canje:Q", bin=alt.Bin(maxbins=20), title="Cantidad de canje"),
+                    x=alt.X("Cantidad de Canje:Q", bin=alt.Bin(maxbins=20), title="Cantidad de canje"),
                     y=alt.Y("count():Q", title="Registros"),
                     tooltip=[alt.Tooltip("count():Q", title="Registros")],
                 )
                 st.altair_chart(style_chart(hist, 260), width="stretch")
             else:
-                st.info("Sin datos de «Canatidad de Canje».")
+                st.info("Sin datos de «Cantidad de Canje».")
 
     st.divider()
 
     # --- Desgloses por dimensión ---------------------------------------- #
-    st.subheader("Desglose")
+    # Sólo se dibuja una columna por cada dimensión que el Sheet trae hoy
+    # (Zona/Tipo pueden no existir si el Form no las pregunta).
+    dims = [d for d in ("Zona", "Mercado", "Tipo") if d in df_f.columns]
+    if dims:
+        st.subheader("Desglose")
 
-    def bar_dim(dim: str, value: str = "Registros"):
-        bd = data_loader.breakdown(df_f, dim)
-        if bd.empty:
-            st.info(f"Sin datos de «{dim}».")
-            return
-        base = alt.Chart(bd).encode(
-            y=alt.Y(f"{dim}:N", sort="-x", title=None),
-            x=alt.X(f"{value}:Q", title=value),
-        )
-        bars = base.mark_bar(color=ACCENT, cornerRadius=3)
-        labels = base.mark_text(align="left", dx=4, color=INK_SOFT).encode(text=f"{value}:Q")
-        st.altair_chart(
-            style_chart(bars + labels, max(140, 34 * len(bd))), width="stretch"
-        )
+        def bar_dim(dim: str, value: str = "Registros"):
+            bd = data_loader.breakdown(df_f, dim)
+            if bd.empty:
+                st.info(f"Sin datos de «{dim}».")
+                return
+            base = alt.Chart(bd).encode(
+                y=alt.Y(f"{dim}:N", sort="-x", title=None),
+                x=alt.X(f"{value}:Q", title=value),
+            )
+            bars = base.mark_bar(color=ACCENT, cornerRadius=3)
+            labels = base.mark_text(align="left", dx=4, color=INK_SOFT).encode(text=f"{value}:Q")
+            st.altair_chart(
+                style_chart(bars + labels, max(140, 34 * len(bd))), width="stretch"
+            )
 
-    d1, d2, d3 = st.columns(3)
-    with d1:
-        st.markdown("**Por zona**")
-        bar_dim("Zona")
-    with d2:
-        st.markdown("**Por mercado**")
-        bar_dim("Mercado")
-    with d3:
-        st.markdown("**Por tipo**")
-        bar_dim("Tipo")
+        for col, dim in zip(st.columns(len(dims)), dims):
+            with col:
+                st.markdown(f"**Por {dim.lower()}**")
+                bar_dim(dim)

@@ -20,34 +20,26 @@ import pandas as pd
 BASE = Path(__file__).resolve().parent.parent
 OUT = BASE / "data" / "respuestas_ejemplo.csv"
 
-ZONAS = ["Norte", "Sur", "Este", "Oeste"]
-MERCADOS = ["Mercado Central", "Mercado 4", "Abasto", "Ciudad del Este", "San Lorenzo"]
-TIPOS = ["Relevamiento", "Activación", "Auditoría"]
+MERCADOS = ["Huamantanga", "Huáscar / Valle Sagrado", "Unicachi VES", "Caquetá", "Bambú"]
+USUARIOS = ["ana@ajinomoto.com", "luis@ajinomoto.com", "sofia@ajinomoto.com"]
+CANJES = [
+    "03 Tiras Aji-no-mix® Deli Arroz + 06 sobres Aji-no-mix® Mezcla para apanar",
+]
 
 random.seed(42)
 start = date(2026, 8, 1)
 rows = []
 for _ in range(160):
-    d = start + timedelta(days=random.randint(0, 35))
-    canje = random.random() > 0.25
+    d = start + timedelta(days=random.randint(0, 35), minutes=random.randint(0, 600))
     rows.append(
         {
-            "Marca temporal": (d + timedelta(minutes=random.randint(0, 600))).strftime(
-                "%d/%m/%Y %H:%M:%S"
-            ),
-            "Fecha": d.strftime("%d/%m/%Y"),
-            "Usuario (Gmail)": random.choice(
-                ["ana@faurus.com", "luis@faurus.com", "sofia@faurus.com"]
-            ),
-            "Tipo": random.choice(TIPOS),
-            "Zona": random.choice(ZONAS),
+            "Marca temporal": d.strftime("%d/%m/%Y %H:%M:%S"),
+            "Usuario (Gmail)": random.choice(USUARIOS),
             "Mercado": random.choice(MERCADOS),
-            "Canje Realizado": "Sí" if canje else "No",
-            "Número de puesto": random.randint(1, 80),
-            "Nombre del puesto": f"Puesto {random.randint(1, 80)}",
+            "Canje Realizado": random.choice(CANJES),
             "Cargue foto": "https://drive.google.com/open?id=EJEMPLO",
             "Observaciones": random.choice(["", "", "Sin stock", "Cliente ausente"]),
-            "Canatidad de Canje": random.randint(1, 15) if canje else 0,
+            "Cantidad de Canje": random.randint(1, 5),
         }
     )
 

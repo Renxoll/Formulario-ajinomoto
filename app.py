@@ -88,20 +88,26 @@ if missing := df.attrs.get("missing_columns"):
 # --------------------------------------------------------------------------- #
 st.sidebar.title("Filtros")
 
+# Filtros de dimensión adaptativos: sólo se muestran para las columnas que
+# realmente trae el Sheet (hoy el Form sólo pregunta "Mercado"; si en el
+# futuro vuelve "Zona"/"Tipo", aparecen solos).
+DIM_COLUMNS = ("Zona", "Mercado", "Tipo")
+dims_presentes = [d for d in DIM_COLUMNS if d in df.columns]
+
 if st.sidebar.button("Limpiar filtros", width="stretch"):
-    for k in ("f_zona", "f_mercado", "f_tipo", "f_fechas"):
-        st.session_state.pop(k, None)
+    for d in dims_presentes:
+        st.session_state.pop(f"f_{d.lower()}", None)
+    st.session_state.pop("f_fechas", None)
     st.rerun()
 
-zonas_sel = st.sidebar.multiselect(
-    "Zona", data_loader.unique_sorted(df["Zona"]) if "Zona" in df else [], key="f_zona"
-)
-mercados_sel = st.sidebar.multiselect(
-    "Mercado", data_loader.unique_sorted(df["Mercado"]) if "Mercado" in df else [], key="f_mercado"
-)
-tipos_sel = st.sidebar.multiselect(
-    "Tipo", data_loader.unique_sorted(df["Tipo"]) if "Tipo" in df else [], key="f_tipo"
-)
+seleccion: dict[str, list[str]] = {}
+for dim in dims_presentes:
+    seleccion[dim] = st.sidebar.multiselect(
+        dim, data_loader.unique_sorted(df[dim]), key=f"f_{dim.lower()}"
+    )
+zonas_sel = seleccion.get("Zona", [])
+mercados_sel = seleccion.get("Mercado", [])
+tipos_sel = seleccion.get("Tipo", [])
 
 # Filtros categóricos aplicados (sin fecha) — base para el período anterior.
 df_cat = data_loader.apply_filters(df, zonas=zonas_sel, mercados=mercados_sel, tipos=tipos_sel)
