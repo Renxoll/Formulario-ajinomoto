@@ -71,33 +71,5 @@ CSS = """
     border: 1px solid rgba(237,28,36,.30);
   }
   hr { margin: 1.1rem 0; opacity: .10; }
-
-  /* Leaderboard (Top promotores) */
-  .aji-lb { display: flex; flex-direction: column; gap: 10px; }
-  .aji-lb-row {
-    display: flex; align-items: center; gap: 12px;
-    background: #FFFFFF; border: 1px solid rgba(26,26,26,0.10); border-radius: 10px;
-    padding: 8px 12px;
-  }
-  .aji-lb-rank {
-    flex: 0 0 20px; font-size: .78rem; font-weight: 800; color: #B0B0B0; text-align: center;
-  }
-  .aji-lb-avatar {
-    flex: 0 0 34px; width: 34px; height: 34px; border-radius: 50%;
-    background: #ED1C24; color: #FFFFFF; font-size: .74rem; font-weight: 800;
-    display: flex; align-items: center; justify-content: center; letter-spacing: .02em;
-  }
-  .aji-lb-info { flex: 1 1 auto; min-width: 0; }
-  .aji-lb-name {
-    font-size: .86rem; font-weight: 700; color: #1A1A1A;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .aji-lb-bar { height: 5px; border-radius: 3px; background: rgba(26,26,26,0.08); margin-top: 5px; }
-  .aji-lb-fill { height: 100%; border-radius: 3px; background: #ED1C24; }
-  .aji-lb-value {
-    flex: 0 0 auto; text-align: right; font-size: .92rem; font-weight: 800; color: #1A1A1A;
-    white-space: nowrap;
-  }
-  .aji-lb-sub { font-size: .74rem; font-weight: 600; color: #6B6B6B; }
 </style>
 """

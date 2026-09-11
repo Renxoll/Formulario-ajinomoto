@@ -1,14 +1,11 @@
 """
-Pestaña «Resumen»: KPIs, evolución diaria de canjes, top promotores y
-desgloses por dimensión.
+Pestaña «Resumen»: KPIs, evolución diaria de canjes y desgloses por dimensión.
 
 Se dibuja llamando a `render(df_f, df_prev, dims)` desde app.py, donde `dims`
 son las columnas categóricas detectadas en vivo (data_loader.detect_dimensions).
 """
 
 from __future__ import annotations
-
-import html
 
 import altair as alt
 import pandas as pd
@@ -17,8 +14,6 @@ import streamlit as st
 import config
 import data_loader
 from theme import ACCENT, GRID, INK_SOFT
-
-PROMOTOR_COLUMN = data_loader.PROMOTOR_COLUMN
 
 # Formato de fecha para ejes/tooltips: sólo día y mes, sin hora (la hora no
 # aporta nada en una serie diaria).
@@ -72,43 +67,6 @@ def _etiqueta_dim(dim: str) -> str:
         return config.DIM_DISPLAY_NAMES[dim]
     vocales = "aeiouáéíóú"
     return dim if dim.endswith(("s", "S")) else dim + ("s" if dim[-1].lower() in vocales else "es")
-
-
-def _iniciales(nombre: str) -> str:
-    partes = [p for p in str(nombre).replace("@", " ").split() if p]
-    if not partes:
-        return "?"
-    if len(partes) == 1:
-        return partes[0][:2].upper()
-    return (partes[0][0] + partes[-1][0]).upper()
-
-
-def _leaderboard(df: pd.DataFrame, top: int = 8) -> None:
-    """Ranking «Top promotores» con avatar de iniciales y barra de progreso."""
-    lb = data_loader.breakdown(df, PROMOTOR_COLUMN).sort_values("Cantidad", ascending=False).head(top)
-    if lb.empty:
-        st.info(f"Sin datos de «{PROMOTOR_COLUMN}».")
-        return
-
-    max_v = lb["Cantidad"].max() or 1
-    filas = []
-    for i, r in enumerate(lb.itertuples(index=False), start=1):
-        nombre = str(getattr(r, PROMOTOR_COLUMN))
-        pct = max(4, round(100 * r.Cantidad / max_v))  # mínimo visible aunque sea chico
-        filas.append(
-            f"""<div class="aji-lb-row">
-                <div class="aji-lb-rank">{i}</div>
-                <div class="aji-lb-avatar">{html.escape(_iniciales(nombre))}</div>
-                <div class="aji-lb-info">
-                    <div class="aji-lb-name">{html.escape(nombre)}</div>
-                    <div class="aji-lb-bar"><div class="aji-lb-fill" style="width:{pct}%"></div></div>
-                </div>
-                <div class="aji-lb-value">{r.Cantidad:,.0f}
-                    <div class="aji-lb-sub">{r.Registros:,.0f} resp.</div>
-                </div>
-            </div>"""
-        )
-    st.markdown(f"<div class='aji-lb'>{''.join(filas)}</div>", unsafe_allow_html=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -187,33 +145,38 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
         with g2:
             st.markdown("**Distribución de la cantidad por registro**")
             if "Cantidad de Canje" in df_f and df_f["Cantidad de Canje"].notna().any():
-                hist = alt.Chart(df_f.dropna(subset=["Cantidad de Canje"])).mark_bar(
-                    color=ACCENT, opacity=0.8
-                ).encode(
-                    x=alt.X("Cantidad de Canje:Q", bin=alt.Bin(maxbins=20), title="Cantidad de canje"),
-                    y=alt.Y("count():Q", title="Registros", axis=alt.Axis(format="d", tickMinStep=1)),
-                    tooltip=[alt.Tooltip("count():Q", title="Registros", format="d")],
+                # "Cantidad de Canje" es siempre un número entero (unidades
+                # canjeadas: 1, 2, 3…), así que se cuenta por valor exacto en
+                # vez de "binnear" — el binneo automático de Altair generaba
+                # cortes fraccionarios (1.5, 2.5…) que no tienen sentido acá.
+                conteo = (
+                    df_f.dropna(subset=["Cantidad de Canje"])
+                    .assign(**{"Cantidad de Canje": lambda d: d["Cantidad de Canje"].astype(int)})
+                    .groupby("Cantidad de Canje")
+                    .size()
+                    .rename("Registros")
+                    .reset_index()
                 )
-                st.altair_chart(style_chart(hist, 260), width="stretch")
+                base_hist = alt.Chart(conteo).encode(
+                    x=alt.X("Cantidad de Canje:O", title="Cantidad de canje"),
+                    y=alt.Y("Registros:Q", title="Registros", axis=alt.Axis(format="d", tickMinStep=1)),
+                    tooltip=[
+                        alt.Tooltip("Cantidad de Canje:O", title="Cantidad de canje"),
+                        alt.Tooltip("Registros:Q", title="Registros", format="d"),
+                    ],
+                )
+                barras_hist = base_hist.mark_bar(color=ACCENT, opacity=0.8)
+                etiquetas_hist = base_hist.mark_text(dy=-8, color=ACCENT, fontWeight="bold").encode(
+                    text=alt.Text("Registros:Q", format="d")
+                )
+                st.altair_chart(style_chart(barras_hist + etiquetas_hist, 260), width="stretch")
             else:
                 st.info("Sin datos de «Cantidad de Canje».")
 
-    # --- Top promotores ---------------------------------------------------- #
-    if PROMOTOR_COLUMN in df_f.columns:
-        st.divider()
-        st.subheader("🏅 Top promotores")
-        st.caption(
-            "Nombre normalizado a partir de «Usuario (Gmail)» (ver config.USUARIO_ALIASES "
-            "para fusionar variantes de un mismo nombre)."
-        )
-        _leaderboard(df_f)
-
     # --- Desgloses por dimensión ---------------------------------------- #
-    # "Promotor" ya se ve en el ranking de arriba; el resto de las
-    # dimensiones detectadas se desglosan acá (adaptativo: si el Form agrega
-    # o saca una pregunta tipo dropdown/radio, aparece o desaparece solo).
-    dims_desglose = [d for d in dims if d != PROMOTOR_COLUMN]
-    if dims_desglose:
+    # Adaptativo: si el Form agrega o saca una pregunta tipo dropdown/radio,
+    # la columna aparece o desaparece sola acá (ver data_loader.detect_dimensions).
+    if dims:
         st.divider()
         st.subheader("🧭 Desglose")
 
@@ -236,7 +199,7 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
                 style_chart(bars + labels, max(140, 34 * len(bd))), width="stretch"
             )
 
-        for col, dim in zip(st.columns(len(dims_desglose)), dims_desglose):
+        for col, dim in zip(st.columns(len(dims)), dims):
             with col:
                 st.markdown(f"**Por {dim.lower()}**")
                 bar_dim(dim)
