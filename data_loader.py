@@ -207,10 +207,13 @@ def daily_canjes(df: pd.DataFrame) -> pd.DataFrame:
     Serie diaria para los gráficos temporales.
 
     Devuelve columnas: Fecha | Canjes | Cantidad | Media7 | Acumulado
-      - Canjes:    nº de registros con canje realizado ese día
+      - Canjes:    nº de registros (respuestas) ese día
       - Cantidad:  suma de "Cantidad de Canje" ese día
-      - Media7:    media móvil de 7 días de Canjes
+      - Media7:    media móvil de 7 días de Cantidad
       - Acumulado: suma acumulada de Cantidad
+    "Cantidad" y "Acumulado" son la MISMA magnitud (unidades canjeadas); la
+    suma de "Cantidad" en todos los días es igual al último valor de
+    "Acumulado", y ambos coinciden con el KPI "Canjes efectivos".
     Rellena los días sin registros con 0 (para que la línea no "salte").
     """
     cols = ["Fecha", "Canjes", "Cantidad", "Media7", "Acumulado"]
@@ -237,7 +240,9 @@ def daily_canjes(df: pd.DataFrame) -> pd.DataFrame:
     out = out.reindex(full_idx, fill_value=0)
     out.index.name = "Fecha"
 
-    out["Media7"] = out["Canjes"].rolling(7, min_periods=1).mean()
+    # Media móvil de "Cantidad" (no de "Canjes"), para que quede en la misma
+    # magnitud que las barras del gráfico y que "Acumulado".
+    out["Media7"] = out["Cantidad"].rolling(7, min_periods=1).mean()
     out["Acumulado"] = out["Cantidad"].cumsum()
     return out.reset_index()[cols]
 

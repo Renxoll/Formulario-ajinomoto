@@ -35,8 +35,19 @@ def render(df_f: pd.DataFrame) -> None:
     if "Cargue foto" in view:
         colcfg["Cargue foto"] = st.column_config.LinkColumn("Cargue foto", display_text="Ver")
 
+    # Sólo para MOSTRAR: si varias filas seguidas son del mismo día, no se
+    # repite la fecha — se deja en blanco salvo en la primera de cada grupo
+    # (las filas ya vienen en el orden en que se enviaron, así que los mismos
+    # días quedan juntos). El CSV que se descarga sí lleva la fecha completa
+    # en cada fila.
+    view_mostrar = view.copy()
+    if "Fecha" in view_mostrar.columns:
+        fecha = view_mostrar["Fecha"]
+        repetida = fecha.notna() & fecha.eq(fecha.shift(1))
+        view_mostrar.loc[repetida, "Fecha"] = pd.NaT
+
     st.dataframe(
-        view, width="stretch", hide_index=True, column_config=colcfg, height=460
+        view_mostrar, width="stretch", hide_index=True, column_config=colcfg, height=460
     )
     st.caption(f"{len(view):,} fila(s) mostradas.")
     st.download_button(

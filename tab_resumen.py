@@ -104,7 +104,10 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
 
     st.divider()
 
-    # --- Evolución temporal (canjes por día + acumulado, un solo gráfico) -- #
+    # --- Evolución temporal (cantidad por día + acumulado, un solo gráfico) #
+    # Las barras grafican "Cantidad" (suma de "Cantidad de Canje", NO cantidad
+    # de respuestas) a propósito: así la suma de las barras coincide con el
+    # último punto del acumulado de abajo y con el KPI "Canjes efectivos".
     serie = data_loader.daily_canjes(df_f)
     st.subheader("📆 Evolución diaria y acumulada de canjes")
     if serie.empty:
@@ -112,23 +115,24 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
     else:
         tooltip_evolucion = [
             alt.Tooltip("Fecha:T", title="Fecha", format=FMT_DIA),
-            alt.Tooltip("Canjes:Q", title="Canjes", format="d"),
+            alt.Tooltip("Cantidad:Q", title="Cantidad de canje", format="d"),
+            alt.Tooltip("Canjes:Q", title="Respuestas", format="d"),
             alt.Tooltip("Media7:Q", title="Media 7d", format=".1f"),
         ]
         barras = alt.Chart(serie).mark_bar(color=ACCENT, opacity=0.35, size=16).encode(
             x=alt.X("Fecha:T", title=None, axis=alt.Axis(format=FMT_DIA)),
-            y=alt.Y("Canjes:Q", title="Canjes por día", axis=alt.Axis(format="d", tickMinStep=1)),
+            y=alt.Y("Cantidad:Q", title="Cantidad de canje por día", axis=alt.Axis(format="d", tickMinStep=1)),
             tooltip=tooltip_evolucion,
         )
         # Etiqueta con el valor entero encima de cada barra (sin decimales:
         # son conteos). Se omite en los días sin canjes para no ensuciar el
         # gráfico con ceros.
-        etiquetas = alt.Chart(serie[serie["Canjes"] > 0]).mark_text(
+        etiquetas = alt.Chart(serie[serie["Cantidad"] > 0]).mark_text(
             dy=-10, color=ACCENT, fontWeight="bold", fontSize=11
         ).encode(
             x=alt.X("Fecha:T"),
-            y=alt.Y("Canjes:Q"),
-            text=alt.Text("Canjes:Q", format="d"),
+            y=alt.Y("Cantidad:Q"),
+            text=alt.Text("Cantidad:Q", format="d"),
             tooltip=tooltip_evolucion,
         )
         # Línea de media móvil CON puntos visibles en cada día.
@@ -156,39 +160,10 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
         chart = alt.vconcat(panel_canjes, panel_acum, spacing=6).resolve_scale(x="shared")
         st.altair_chart(style_concat(chart), width="stretch")
         st.caption(
-            "Arriba: canjes por día (barras, con el valor arriba) y media móvil de 7 días (línea con puntos). "
-            "Abajo: cantidad de canje acumulada en el período, con un punto por día."
+            "Arriba: cantidad de canje por día (barras, con el valor arriba) y media móvil de 7 días "
+            "(línea con puntos). Abajo: cantidad de canje acumulada en el período — el último punto "
+            "coincide con la suma de las barras y con «Canjes efectivos»."
         )
-
-    st.markdown("**Distribución de la cantidad por registro**")
-    if "Cantidad de Canje" in df_f and df_f["Cantidad de Canje"].notna().any():
-        # "Cantidad de Canje" es siempre un número entero (unidades
-        # canjeadas: 1, 2, 3…), así que se cuenta por valor exacto en vez de
-        # "binnear" — el binneo automático de Altair generaba cortes
-        # fraccionarios (1.5, 2.5…) que no tienen sentido acá.
-        conteo = (
-            df_f.dropna(subset=["Cantidad de Canje"])
-            .assign(**{"Cantidad de Canje": lambda d: d["Cantidad de Canje"].astype(int)})
-            .groupby("Cantidad de Canje")
-            .size()
-            .rename("Registros")
-            .reset_index()
-        )
-        base_hist = alt.Chart(conteo).encode(
-            x=alt.X("Cantidad de Canje:O", title="Cantidad de canje"),
-            y=alt.Y("Registros:Q", title="Registros", axis=alt.Axis(format="d", tickMinStep=1)),
-            tooltip=[
-                alt.Tooltip("Cantidad de Canje:O", title="Cantidad de canje"),
-                alt.Tooltip("Registros:Q", title="Registros", format="d"),
-            ],
-        )
-        barras_hist = base_hist.mark_bar(color=ACCENT, opacity=0.8)
-        etiquetas_hist = base_hist.mark_text(dy=-8, color=ACCENT, fontWeight="bold").encode(
-            text=alt.Text("Registros:Q", format="d")
-        )
-        st.altair_chart(style_chart(barras_hist + etiquetas_hist, 260), width="stretch")
-    else:
-        st.info("Sin datos de «Cantidad de Canje».")
 
     # --- Desgloses por dimensión ---------------------------------------- #
     # Adaptativo: si el Form agrega o saca una pregunta tipo dropdown/radio,
@@ -197,23 +172,37 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
         st.divider()
         st.subheader("🧭 Desglose")
 
-        def bar_dim(dim: str, value: str = "Registros"):
+        def bar_dim(dim: str, value: str = "Cantidad"):
+            # "Cantidad" (suma de "Cantidad de Canje"), no "Registros" (nº de
+            # respuestas): así el total de las barras coincide con «Canjes
+            # efectivos» y con el gráfico de evolución de arriba.
             bd = data_loader.breakdown(df_f, dim)
             if bd.empty:
                 st.info(f"Sin datos de «{dim}».")
                 return
             base = alt.Chart(bd).encode(
                 # labelLimit alto para que no corte nombres largos de mercado
-                # (p. ej. "Huáscar / Valle Sagrado").
-                y=alt.Y(f"{dim}:N", sort="-x", title=None, axis=alt.Axis(labelLimit=280)),
-                x=alt.X(f"{value}:Q", title=value, axis=alt.Axis(format="d", tickMinStep=1)),
+                # (p. ej. "Huáscar / Valle Sagrado"); labelOverlap=False para
+                # que Vega-Lite NO se salte etiquetas cuando "cree" que se
+                # van a superponer (con pocas categorías nunca se superponen
+                # de verdad, pero por defecto igual oculta algunas).
+                y=alt.Y(
+                    f"{dim}:N", sort="-x", title=None,
+                    axis=alt.Axis(labelLimit=280, labelOverlap=False, labelPadding=6),
+                ),
+                x=alt.X(f"{value}:Q", title="Cantidad de canje", axis=alt.Axis(format="d", tickMinStep=1)),
+                tooltip=[
+                    alt.Tooltip(f"{dim}:N", title=dim),
+                    alt.Tooltip("Cantidad:Q", title="Cantidad de canje", format="d"),
+                    alt.Tooltip("Registros:Q", title="Respuestas", format="d"),
+                ],
             )
             bars = base.mark_bar(color=ACCENT, cornerRadius=3)
             labels = base.mark_text(align="left", dx=4, color=INK_SOFT, fontWeight="bold").encode(
                 text=alt.Text(f"{value}:Q", format="d")
             )
             st.altair_chart(
-                style_chart(bars + labels, max(140, 34 * len(bd))), width="stretch"
+                style_chart(bars + labels, max(160, 42 * len(bd))), width="stretch"
             )
 
         for col, dim in zip(st.columns(len(dims)), dims):
