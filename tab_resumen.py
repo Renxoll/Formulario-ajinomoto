@@ -113,16 +113,14 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
     if serie.empty:
         st.info("Sin fechas válidas para graficar con los filtros actuales.")
     else:
-        tooltip_evolucion = [
+        tooltip_canjes = [
             alt.Tooltip("Fecha:T", title="Fecha", format=FMT_DIA),
             alt.Tooltip("Cantidad:Q", title="Cantidad de canje", format="d"),
-            alt.Tooltip("Canjes:Q", title="Respuestas", format="d"),
-            alt.Tooltip("Media7:Q", title="Media 7d", format=".1f"),
         ]
         barras = alt.Chart(serie).mark_bar(color=ACCENT, opacity=0.35, size=16).encode(
             x=alt.X("Fecha:T", title=None, axis=alt.Axis(format=FMT_DIA)),
             y=alt.Y("Cantidad:Q", title="Cantidad de canje por día", axis=alt.Axis(format="d", tickMinStep=1)),
-            tooltip=tooltip_evolucion,
+            tooltip=tooltip_canjes,
         )
         # Etiqueta con el valor entero encima de cada barra (sin decimales:
         # son conteos). Se omite en los días sin canjes para no ensuciar el
@@ -133,18 +131,13 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
             x=alt.X("Fecha:T"),
             y=alt.Y("Cantidad:Q"),
             text=alt.Text("Cantidad:Q", format="d"),
-            tooltip=tooltip_evolucion,
+            tooltip=tooltip_canjes,
         )
-        # Línea de media móvil CON puntos visibles en cada día.
-        linea = alt.Chart(serie).mark_line(
-            color=ACCENT, strokeWidth=2.5,
-            point=alt.OverlayMarkDef(color=ACCENT, size=45, filled=True),
-        ).encode(x="Fecha:T", y="Media7:Q", tooltip=tooltip_evolucion)
-        panel_canjes = (barras + etiquetas + linea).properties(height=260)
+        panel_canjes = (barras + etiquetas).properties(height=260)
 
         # Panel de abajo: cantidad acumulada, fusionado con el de arriba en un
-        # solo bloque (mismo eje de fechas) en vez de un gráfico aparte — con
-        # puntos visibles en cada día, no sólo la línea.
+        # solo bloque (mismo eje de fechas) en vez de un gráfico aparte. Punto
+        # y número visibles en cada día, sin necesidad de pasar el mouse.
         base_acum = alt.Chart(serie).encode(
             x=alt.X("Fecha:T", title=None, axis=alt.Axis(format=FMT_DIA)),
             y=alt.Y("Acumulado:Q", title="Acumulado", axis=alt.Axis(format="d")),
@@ -155,14 +148,17 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
         )
         area_acum = base_acum.mark_area(color=ACCENT, opacity=0.15, line={"color": ACCENT, "strokeWidth": 2})
         puntos_acum = base_acum.mark_point(color=ACCENT, size=45, filled=True)
-        panel_acum = (area_acum + puntos_acum).properties(height=160)
+        etiquetas_acum = base_acum.mark_text(dy=-10, color=ACCENT, fontWeight="bold", fontSize=11).encode(
+            text=alt.Text("Acumulado:Q", format="d")
+        )
+        panel_acum = (area_acum + puntos_acum + etiquetas_acum).properties(height=180)
 
         chart = alt.vconcat(panel_canjes, panel_acum, spacing=6).resolve_scale(x="shared")
         st.altair_chart(style_concat(chart), width="stretch")
         st.caption(
-            "Arriba: cantidad de canje por día (barras, con el valor arriba) y media móvil de 7 días "
-            "(línea con puntos). Abajo: cantidad de canje acumulada en el período — el último punto "
-            "coincide con la suma de las barras y con «Canjes efectivos»."
+            "Arriba: cantidad de canje por día (barras, con el valor arriba). Abajo: cantidad de canje "
+            "acumulada en el período — el último número coincide con la suma de las barras y con "
+            "«Canjes efectivos»."
         )
 
     # --- Desgloses por dimensión ---------------------------------------- #
