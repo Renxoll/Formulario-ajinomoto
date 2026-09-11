@@ -23,11 +23,10 @@ FMT_DIA = "%d %b"
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def style_chart(ch: alt.Chart, height: int = 300) -> alt.Chart:
+def _configure(ch):
     """Estética común: sin marco, ejes tenues, grilla suave sólo en Y."""
     return (
-        ch.properties(height=height)
-        .configure_view(strokeWidth=0)
+        ch.configure_view(strokeWidth=0)
         .configure_axis(
             labelColor=INK_SOFT,
             titleColor=INK_SOFT,
@@ -39,6 +38,17 @@ def style_chart(ch: alt.Chart, height: int = 300) -> alt.Chart:
         .configure_axisY(grid=True, gridColor=GRID)
         .configure_legend(labelColor=INK_SOFT, titleColor=INK_SOFT, orient="top")
     )
+
+
+def style_chart(ch: alt.Chart, height: int = 300) -> alt.Chart:
+    """`_configure` para un único gráfico (le fija la altura antes)."""
+    return _configure(ch.properties(height=height))
+
+
+def style_concat(ch):
+    """`_configure` para gráficos apilados con alt.vconcat (cada panel ya
+    trae su propia altura vía .properties())."""
+    return _configure(ch)
 
 
 def kpis(d: pd.DataFrame, dims: list[str]) -> dict:
@@ -76,12 +86,11 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
     k = kpis(df_f, dims)
     kp = kpis(df_prev, dims) if df_prev is not None and len(df_prev) else None
 
-    # "Respuestas" no se muestra: hoy coincide siempre con "Canjes realizados"
-    # (todas las respuestas registran un canje), así que es redundante.
-    # "Canjes efectivos" es la SUMA de "Cantidad de Canje" (una persona puede
-    # canjear 2, 3…), a diferencia de "Canjes realizados" que cuenta filas.
+    # "Respuestas" y "Canjes realizados" no se muestran: cuentan filas, y para
+    # el negocio lo que importa es la cantidad efectivamente canjeada
+    # ("Canjes efectivos" = suma de "Cantidad de Canje"; una persona puede
+    # canjear 2, 3…) y la tasa de canje.
     items = [
-        ("Canjes realizados", f"{k['canjes']:,}", delta(k["canjes"], kp["canjes"] if kp else None)),
         ("Tasa de canje", f"{k['tasa']:.0f}%", delta(k["tasa"], kp["tasa"] if kp else None, pp=True)),
         ("Canjes efectivos", f"{k['cant']:,.0f}", delta(k["cant"], kp["cant"] if kp else None)),
     ]
@@ -95,9 +104,9 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
 
     st.divider()
 
-    # --- Evolución temporal ------------------------------------------------ #
+    # --- Evolución temporal (canjes por día + acumulado, un solo gráfico) -- #
     serie = data_loader.daily_canjes(df_f)
-    st.subheader("📆 Evolución diaria de canjes")
+    st.subheader("📆 Evolución diaria y acumulada de canjes")
     if serie.empty:
         st.info("Sin fechas válidas para graficar con los filtros actuales.")
     else:
@@ -122,56 +131,64 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
             text=alt.Text("Canjes:Q", format="d"),
             tooltip=tooltip_evolucion,
         )
-        linea = alt.Chart(serie).mark_line(color=ACCENT, strokeWidth=2.5).encode(
-            x="Fecha:T", y="Media7:Q"
-        )
-        st.altair_chart(style_chart(barras + etiquetas + linea, 300), width="stretch")
-        st.caption("Barras = canjes por día (con el valor arriba) · línea = media móvil de 7 días.")
+        # Línea de media móvil CON puntos visibles en cada día.
+        linea = alt.Chart(serie).mark_line(
+            color=ACCENT, strokeWidth=2.5,
+            point=alt.OverlayMarkDef(color=ACCENT, size=45, filled=True),
+        ).encode(x="Fecha:T", y="Media7:Q", tooltip=tooltip_evolucion)
+        panel_canjes = (barras + etiquetas + linea).properties(height=260)
 
-        g1, g2 = st.columns(2)
-        with g1:
-            st.markdown("**Cantidad de canje acumulada**")
-            area = alt.Chart(serie).mark_area(
-                color=ACCENT, opacity=0.18, line={"color": ACCENT, "strokeWidth": 2}
-            ).encode(
-                x=alt.X("Fecha:T", title=None, axis=alt.Axis(format=FMT_DIA)),
-                y=alt.Y("Acumulado:Q", title="Acumulado", axis=alt.Axis(format="d")),
-                tooltip=[
-                    alt.Tooltip("Fecha:T", title="Fecha", format=FMT_DIA),
-                    alt.Tooltip("Acumulado:Q", title="Acumulado", format=",.0f"),
-                ],
-            )
-            st.altair_chart(style_chart(area, 260), width="stretch")
-        with g2:
-            st.markdown("**Distribución de la cantidad por registro**")
-            if "Cantidad de Canje" in df_f and df_f["Cantidad de Canje"].notna().any():
-                # "Cantidad de Canje" es siempre un número entero (unidades
-                # canjeadas: 1, 2, 3…), así que se cuenta por valor exacto en
-                # vez de "binnear" — el binneo automático de Altair generaba
-                # cortes fraccionarios (1.5, 2.5…) que no tienen sentido acá.
-                conteo = (
-                    df_f.dropna(subset=["Cantidad de Canje"])
-                    .assign(**{"Cantidad de Canje": lambda d: d["Cantidad de Canje"].astype(int)})
-                    .groupby("Cantidad de Canje")
-                    .size()
-                    .rename("Registros")
-                    .reset_index()
-                )
-                base_hist = alt.Chart(conteo).encode(
-                    x=alt.X("Cantidad de Canje:O", title="Cantidad de canje"),
-                    y=alt.Y("Registros:Q", title="Registros", axis=alt.Axis(format="d", tickMinStep=1)),
-                    tooltip=[
-                        alt.Tooltip("Cantidad de Canje:O", title="Cantidad de canje"),
-                        alt.Tooltip("Registros:Q", title="Registros", format="d"),
-                    ],
-                )
-                barras_hist = base_hist.mark_bar(color=ACCENT, opacity=0.8)
-                etiquetas_hist = base_hist.mark_text(dy=-8, color=ACCENT, fontWeight="bold").encode(
-                    text=alt.Text("Registros:Q", format="d")
-                )
-                st.altair_chart(style_chart(barras_hist + etiquetas_hist, 260), width="stretch")
-            else:
-                st.info("Sin datos de «Cantidad de Canje».")
+        # Panel de abajo: cantidad acumulada, fusionado con el de arriba en un
+        # solo bloque (mismo eje de fechas) en vez de un gráfico aparte — con
+        # puntos visibles en cada día, no sólo la línea.
+        base_acum = alt.Chart(serie).encode(
+            x=alt.X("Fecha:T", title=None, axis=alt.Axis(format=FMT_DIA)),
+            y=alt.Y("Acumulado:Q", title="Acumulado", axis=alt.Axis(format="d")),
+            tooltip=[
+                alt.Tooltip("Fecha:T", title="Fecha", format=FMT_DIA),
+                alt.Tooltip("Acumulado:Q", title="Acumulado", format=",.0f"),
+            ],
+        )
+        area_acum = base_acum.mark_area(color=ACCENT, opacity=0.15, line={"color": ACCENT, "strokeWidth": 2})
+        puntos_acum = base_acum.mark_point(color=ACCENT, size=45, filled=True)
+        panel_acum = (area_acum + puntos_acum).properties(height=160)
+
+        chart = alt.vconcat(panel_canjes, panel_acum, spacing=6).resolve_scale(x="shared")
+        st.altair_chart(style_concat(chart), width="stretch")
+        st.caption(
+            "Arriba: canjes por día (barras, con el valor arriba) y media móvil de 7 días (línea con puntos). "
+            "Abajo: cantidad de canje acumulada en el período, con un punto por día."
+        )
+
+    st.markdown("**Distribución de la cantidad por registro**")
+    if "Cantidad de Canje" in df_f and df_f["Cantidad de Canje"].notna().any():
+        # "Cantidad de Canje" es siempre un número entero (unidades
+        # canjeadas: 1, 2, 3…), así que se cuenta por valor exacto en vez de
+        # "binnear" — el binneo automático de Altair generaba cortes
+        # fraccionarios (1.5, 2.5…) que no tienen sentido acá.
+        conteo = (
+            df_f.dropna(subset=["Cantidad de Canje"])
+            .assign(**{"Cantidad de Canje": lambda d: d["Cantidad de Canje"].astype(int)})
+            .groupby("Cantidad de Canje")
+            .size()
+            .rename("Registros")
+            .reset_index()
+        )
+        base_hist = alt.Chart(conteo).encode(
+            x=alt.X("Cantidad de Canje:O", title="Cantidad de canje"),
+            y=alt.Y("Registros:Q", title="Registros", axis=alt.Axis(format="d", tickMinStep=1)),
+            tooltip=[
+                alt.Tooltip("Cantidad de Canje:O", title="Cantidad de canje"),
+                alt.Tooltip("Registros:Q", title="Registros", format="d"),
+            ],
+        )
+        barras_hist = base_hist.mark_bar(color=ACCENT, opacity=0.8)
+        etiquetas_hist = base_hist.mark_text(dy=-8, color=ACCENT, fontWeight="bold").encode(
+            text=alt.Text("Registros:Q", format="d")
+        )
+        st.altair_chart(style_chart(barras_hist + etiquetas_hist, 260), width="stretch")
+    else:
+        st.info("Sin datos de «Cantidad de Canje».")
 
     # --- Desgloses por dimensión ---------------------------------------- #
     # Adaptativo: si el Form agrega o saca una pregunta tipo dropdown/radio,

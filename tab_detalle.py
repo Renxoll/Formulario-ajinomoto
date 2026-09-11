@@ -10,23 +10,11 @@ import pandas as pd
 import streamlit as st
 
 import config
-import data_loader
-
-
-def _orden_columnas(cols: list[str]) -> list[str]:
-    """"Promotor" (nombre prolijo) va justo al lado de "Usuario (Gmail)" (el dato crudo)."""
-    promotor = data_loader.PROMOTOR_COLUMN
-    usuario = data_loader.USUARIO_COLUMN
-    if promotor not in cols or usuario not in cols:
-        return cols
-    cols = [c for c in cols if c != promotor]
-    i = cols.index(usuario)
-    return cols[: i + 1] + [promotor] + cols[i + 1 :]
 
 
 def render(df_f: pd.DataFrame) -> None:
     st.subheader("Respuestas filtradas")
-    cols_visibles = _orden_columnas([c for c in df_f.columns if not c.startswith("_")])
+    cols_visibles = [c for c in df_f.columns if not c.startswith("_")]
     view = df_f[cols_visibles]
 
     q = st.text_input("Buscar", placeholder="Filtra por cualquier texto de la tabla…")

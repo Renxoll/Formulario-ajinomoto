@@ -30,32 +30,10 @@ COLUMN_ALIASES = {
 _CANJE_NEGATIVOS = {"", "no", "n", "false", "0", "ninguno", "sin canje", "-", "nan"}
 
 USUARIO_COLUMN = "Usuario (Gmail)"
-PROMOTOR_COLUMN = "Promotor"
 
 
 class DataLoadError(Exception):
     """Error controlado al leer o validar los datos."""
-
-
-def _normalizar_nombre(valor) -> str | None:
-    """
-    Limpieza puramente visual de "Usuario (Gmail)": recorta espacios repetidos
-    y capitaliza (los emails quedan en minúscula). No decide identidad.
-    """
-    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
-        return None
-    texto = " ".join(str(valor).split())
-    if not texto:
-        return None
-    return texto.lower() if "@" in texto else texto.title()
-
-
-def _promotor(df: pd.DataFrame) -> pd.Series | None:
-    """Columna "Promotor": nombre normalizado + alias configurables (config.USUARIO_ALIASES)."""
-    if USUARIO_COLUMN not in df.columns:
-        return None
-    nombre = df[USUARIO_COLUMN].map(_normalizar_nombre)
-    return nombre.map(lambda v: config.USUARIO_ALIASES.get(v, v) if v else v).astype("string")
 
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -125,10 +103,6 @@ def _finalize(df: pd.DataFrame) -> pd.DataFrame:
             continue
         if df[col].dtype == object or str(df[col].dtype) == "string":
             df[col] = df[col].astype("string").str.strip().replace({"": pd.NA})
-
-    promotor = _promotor(df)
-    if promotor is not None:
-        df[PROMOTOR_COLUMN] = promotor
 
     return df
 

@@ -69,9 +69,8 @@ TIMESTAMP_COLUMNS = ["Marca temporal", "Timestamp", "Hora de inicio", "Hora de f
 # adapta sin tocar código.
 #
 # Estas son las columnas que NUNCA deben tratarse como dimensión (texto
-# libre o identificador). "Promotor" SÍ puede ser dimensión (filtro y tarjeta
-# de KPI) — su desglose en gráfico de barras se omite a propósito porque ya
-# tiene su propia vista en "🏅 Top promotores" (ver tab_resumen.py).
+# libre o identificador). "Usuario (Gmail)" queda afuera a propósito: el
+# dashboard no desglosa por promotor.
 NON_DIM_COLUMNS = {
     "Marca temporal", "Fecha", "Cargue foto", "Observaciones",
     "Cantidad de Canje", "Usuario (Gmail)",
@@ -83,30 +82,10 @@ NON_DIM_COLUMNS = {
 # para que el dashboard siga funcionando, es sólo para pulir el texto.
 DIM_DISPLAY_NAMES = {
     "Mercado": "Mercados visitados",
-    "Promotor": "Promotores",
 }
 # Por encima de este número de valores distintos, una columna de texto ya no
 # es "categórica" (es más bien texto libre) y no se ofrece como filtro.
 MAX_DIM_CARDINALITY = 30
-
-# --------------------------------------------------------------------------- #
-# Nombres de promotor ("Usuario (Gmail)") — normalización para mostrar
-# --------------------------------------------------------------------------- #
-# El campo no es un selector de cuenta de Google: la gente escribe su nombre
-# a mano, con mayúsculas/espacios/typos inconsistentes. data_loader arma una
-# columna derivada "Promotor" para mostrar:
-#   1. recorta espacios y pone Mayúscula Inicial (los emails quedan en minúscula)
-#   2. si el resultado normalizado está en USUARIO_ALIASES, se reemplaza por el
-#      canónico de acá abajo.
-# Esto es sólo VISUAL — la columna original "Usuario (Gmail)" no se toca.
-# Sumá acá cualquier variante nueva que veas repetida en la pestaña Detalle
-# (comparación EXACTA, ya normalizada — mirá cómo quedan las claves de ejemplo).
-USUARIO_ALIASES = {
-    "Yesenia Zevallos": "Yessenia Zevallos Remigio",
-    "Yesenia Zevallos Remigio": "Yessenia Zevallos Remigio",
-    "Yessenia Zevallos": "Yessenia Zevallos Remigio",
-    "Yessenia Zevallos Remigio": "Yessenia Zevallos Remigio",
-}
 
 # --------------------------------------------------------------------------- #
 # Google Form
