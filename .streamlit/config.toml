@@ -1,0 +1,11 @@
+# Tema fijo (identidad Ajinomoto). Al definir un tema acá, Streamlit deja de
+# ofrecer "Dark"/"Use system setting" en el menú de Configuración — la app
+# siempre se ve igual, sin vista nocturna, sin importar el sistema del
+# usuario. Colores iguales a los de theme.py.
+[theme]
+base = "light"
+primaryColor = "#ED1C24"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#FAFAFA"
+textColor = "#1A1A1A"
+font = "sans serif"
