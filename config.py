@@ -88,6 +88,14 @@ DIM_DISPLAY_NAMES = {
 MAX_DIM_CARDINALITY = 30
 
 # --------------------------------------------------------------------------- #
+# Meta de la campaña
+# --------------------------------------------------------------------------- #
+# Meta de "Cantidad de Canje" por cada mercado. Se usa para calcular el
+# % de cumplimiento (mercado a mercado y en el total acumulado). Editar acá
+# cuando cambie la meta de la campaña — no hace falta tocar el resto del código.
+META_POR_MERCADO = 180
+
+# --------------------------------------------------------------------------- #
 # Google Form
 # --------------------------------------------------------------------------- #
 # TODO: reemplazar por la URL real del formulario (la de "viewform", NO la de edición).

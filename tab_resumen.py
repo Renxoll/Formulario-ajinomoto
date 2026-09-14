@@ -151,14 +151,31 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
         etiquetas_acum = base_acum.mark_text(dy=-10, color=ACCENT, fontWeight="bold", fontSize=11).encode(
             text=alt.Text("Acumulado:Q", format="d")
         )
-        panel_acum = (area_acum + puntos_acum + etiquetas_acum).properties(height=180)
+        capas_acum = [area_acum, puntos_acum, etiquetas_acum]
+
+        # Línea de meta: 180 canjes por cada mercado presente en el filtro
+        # actual (si hay 5 mercados, la meta acumulada es 180 × 5 = 900).
+        n_mercados = df_f["Mercado"].nunique() if "Mercado" in df_f.columns else 0
+        meta_acumulada = config.META_POR_MERCADO * n_mercados if n_mercados else None
+        if meta_acumulada:
+            regla_meta = alt.Chart(pd.DataFrame({"Meta": [meta_acumulada]})).mark_rule(
+                color=INK_SOFT, strokeDash=[5, 4], strokeWidth=1.5
+            ).encode(y="Meta:Q", tooltip=[alt.Tooltip("Meta:Q", title="Meta acumulada", format=",.0f")])
+            capas_acum.append(regla_meta)
+
+        panel_acum = alt.layer(*capas_acum).properties(height=180)
 
         chart = alt.vconcat(panel_canjes, panel_acum, spacing=6).resolve_scale(x="shared")
         st.altair_chart(style_concat(chart), width="stretch")
+        pie = (
+            f" Línea punteada: meta acumulada ({meta_acumulada:,.0f} = "
+            f"{config.META_POR_MERCADO} × {n_mercados} mercado(s))."
+            if meta_acumulada else ""
+        )
         st.caption(
             "Arriba: cantidad de canje por día (barras, con el valor arriba). Abajo: cantidad de canje "
             "acumulada en el período — el último número coincide con la suma de las barras y con "
-            "«Canjes efectivos»."
+            f"«Canjes efectivos».{pie}"
         )
 
     # --- Desgloses por dimensión ---------------------------------------- #
@@ -205,3 +222,45 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
             with col:
                 st.markdown(f"**Por {dim.lower()}**")
                 bar_dim(dim)
+
+    # --- Cumplimiento de meta, mercado a mercado ------------------------- #
+    if "Mercado" in df_f.columns and config.META_POR_MERCADO:
+        st.divider()
+        st.subheader("🎯 Cumplimiento de meta por mercado")
+        st.caption(f"Meta: {config.META_POR_MERCADO:,} canjes por mercado.")
+
+        cump = data_loader.breakdown(df_f, "Mercado")
+        if cump.empty:
+            st.info("Sin datos de «Mercado».")
+        else:
+            cump = cump.copy()
+            cump["Cumplimiento"] = cump["Cantidad"] / config.META_POR_MERCADO * 100
+
+            base_cump = alt.Chart(cump).transform_calculate(
+                etiqueta='format(datum.Cumplimiento, ".0f") + "%"'
+            ).encode(
+                y=alt.Y(
+                    "Mercado:N", sort="-x", title=None,
+                    axis=alt.Axis(labelLimit=280, labelOverlap=False, labelPadding=6),
+                ),
+                x=alt.X("Cumplimiento:Q", title="Cumplimiento de la meta (%)", axis=alt.Axis(format=".0f")),
+                tooltip=[
+                    alt.Tooltip("Mercado:N"),
+                    alt.Tooltip("Cantidad:Q", title="Cantidad de canje", format="d"),
+                    alt.Tooltip("Cumplimiento:Q", title="Cumplimiento", format=".0f"),
+                ],
+            )
+            barras_cump = base_cump.mark_bar(color=ACCENT, cornerRadius=3)
+            etiquetas_cump = base_cump.mark_text(align="left", dx=4, color=INK_SOFT, fontWeight="bold").encode(
+                text="etiqueta:N"
+            )
+            # Línea punteada en el 100% = meta cumplida.
+            regla_100 = alt.Chart(pd.DataFrame({"Meta": [100]})).mark_rule(
+                color=INK_SOFT, strokeDash=[5, 4], strokeWidth=1.5
+            ).encode(x="Meta:Q")
+
+            st.altair_chart(
+                style_chart(barras_cump + etiquetas_cump + regla_100, max(160, 42 * len(cump))),
+                width="stretch",
+            )
+            st.caption("Línea punteada = 100% de la meta (180 canjes) en ese mercado.")
