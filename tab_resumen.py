@@ -54,11 +54,21 @@ def style_concat(ch):
 def kpis(d: pd.DataFrame, dims: list[str]) -> dict:
     n = len(d)
     canjes = int(d["_canje_bool"].sum()) if "_canje_bool" in d else n
+    cant = float(d["Cantidad de Canje"].sum()) if "Cantidad de Canje" in d else 0.0
+
+    # Meta total = 180 canjes × cantidad de mercados presentes. "Tasa de
+    # canje" = Canjes efectivos (Cantidad de Canje) / meta total.
+    n_mercados = d["Mercado"].nunique() if "Mercado" in d.columns else 0
+    meta_total = config.META_POR_MERCADO * n_mercados if n_mercados else 0.0
+    tasa = (cant / meta_total * 100) if meta_total else 0.0
+
     return {
         "n": n,
         "canjes": canjes,
-        "tasa": (canjes / n * 100) if n else 0.0,
-        "cant": float(d["Cantidad de Canje"].sum()) if "Cantidad de Canje" in d else 0.0,
+        "tasa": tasa,
+        "cant": cant,
+        "n_mercados": n_mercados,
+        "meta_total": meta_total,
         "dims": {dim: d[dim].nunique() for dim in dims if dim in d.columns},
     }
 
@@ -89,7 +99,8 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
     # "Respuestas" y "Canjes realizados" no se muestran: cuentan filas, y para
     # el negocio lo que importa es la cantidad efectivamente canjeada
     # ("Canjes efectivos" = suma de "Cantidad de Canje"; una persona puede
-    # canjear 2, 3…) y la tasa de canje.
+    # canjear 2, 3…). "Tasa de canje" = Canjes efectivos / meta total
+    # (180 canjes × cantidad de mercados) — % de cumplimiento de la campaña.
     items = [
         ("Tasa de canje", f"{k['tasa']:.0f}%", delta(k["tasa"], kp["tasa"] if kp else None, pp=True)),
         ("Canjes efectivos", f"{k['cant']:,.0f}", delta(k["cant"], kp["cant"] if kp else None)),
@@ -155,8 +166,8 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
 
         # Línea de meta: 180 canjes por cada mercado presente en el filtro
         # actual (si hay 5 mercados, la meta acumulada es 180 × 5 = 900).
-        n_mercados = df_f["Mercado"].nunique() if "Mercado" in df_f.columns else 0
-        meta_acumulada = config.META_POR_MERCADO * n_mercados if n_mercados else None
+        # Mismo número que usa "Tasa de canje" (ver kpis()).
+        meta_acumulada = k["meta_total"] or None
         if meta_acumulada:
             regla_meta = alt.Chart(pd.DataFrame({"Meta": [meta_acumulada]})).mark_rule(
                 color=INK_SOFT, strokeDash=[5, 4], strokeWidth=1.5
@@ -169,7 +180,7 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
         st.altair_chart(style_concat(chart), width="stretch")
         pie = (
             f" Línea punteada: meta acumulada ({meta_acumulada:,.0f} = "
-            f"{config.META_POR_MERCADO} × {n_mercados} mercado(s))."
+            f"{config.META_POR_MERCADO} × {k['n_mercados']} mercado(s))."
             if meta_acumulada else ""
         )
         st.caption(
