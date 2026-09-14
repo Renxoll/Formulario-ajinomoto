@@ -247,47 +247,6 @@ def daily_canjes(df: pd.DataFrame) -> pd.DataFrame:
     return out.reset_index()[cols]
 
 
-def cumplimiento_diario(df: pd.DataFrame, dim: str, meta: float) -> pd.DataFrame:
-    """
-    Tendencia diaria de % de cumplimiento de meta, ACUMULADO, para cada valor
-    de `dim` (p. ej. cada mercado) — construida igual que daily_canjes(), sólo
-    que separada por `dim` y expresada como % en vez de unidades.
-
-    Devuelve columnas: Fecha | <dim> | Cantidad | Acumulado | Cumplimiento
-      - Cantidad:     suma de "Cantidad de Canje" ese día, para ese grupo
-      - Acumulado:    suma acumulada de Cantidad, por grupo
-      - Cumplimiento: Acumulado / meta * 100
-
-    Rellena los días sin actividad de cada grupo con 0 (grilla Fecha × dim
-    completa) para que el acumulado no tenga huecos ni saltos falsos.
-    """
-    cols = ["Fecha", dim, "Cantidad", "Acumulado", "Cumplimiento"]
-    if "Fecha" not in df.columns or dim not in df.columns or not meta:
-        return pd.DataFrame(columns=cols)
-
-    base = df.dropna(subset=["Fecha", dim]).copy()
-    if base.empty:
-        return pd.DataFrame(columns=cols)
-    base["Fecha"] = base["Fecha"].dt.normalize()
-
-    diario = (
-        base.groupby(["Fecha", dim])[QTY_COLUMN].sum().rename("Cantidad").reset_index()
-        if QTY_COLUMN in base.columns
-        else base.groupby(["Fecha", dim]).size().rename("Cantidad").reset_index()
-    )
-
-    fechas = pd.date_range(diario["Fecha"].min(), diario["Fecha"].max(), freq="D")
-    grupos = sorted(diario[dim].dropna().unique())
-    grilla = pd.MultiIndex.from_product([fechas, grupos], names=["Fecha", dim]).to_frame(index=False)
-    out = grilla.merge(diario, on=["Fecha", dim], how="left")
-    out["Cantidad"] = out["Cantidad"].fillna(0)
-    out = out.sort_values([dim, "Fecha"])
-
-    out["Acumulado"] = out.groupby(dim)["Cantidad"].cumsum()
-    out["Cumplimiento"] = out["Acumulado"] / meta * 100
-    return out.reset_index(drop=True)[cols]
-
-
 def breakdown(df: pd.DataFrame, dim: str) -> pd.DataFrame:
     """Agrega por cualquier columna categórica (ver detect_dimensions): Registros, Canjes, Cantidad."""
     if dim not in df.columns or df.empty:
