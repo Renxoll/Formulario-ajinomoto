@@ -13,7 +13,7 @@ import streamlit as st
 
 import config
 import data_loader
-from theme import ACCENT, GRID, INK_SOFT
+from theme import ACCENT, GRID, INK_SOFT, PALETTE
 
 # Formato de fecha para ejes/tooltips: sólo día y mes, sin hora (la hora no
 # aporta nada en una serie diaria).
@@ -240,6 +240,39 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
         st.subheader("🎯 Cumplimiento de meta por mercado")
         st.caption(f"Meta: {config.META_POR_MERCADO:,} canjes por mercado.")
 
+        # --- 1º gráfico: tendencia (línea) — misma construcción que
+        # "Evolución diaria y acumulada" de arriba (acumulado día a día, sin
+        # huecos), pero una línea POR mercado y en % de la meta.
+        tendencia = data_loader.cumplimiento_diario(df_f, "Mercado", config.META_POR_MERCADO)
+        if tendencia.empty:
+            st.info("Sin fechas válidas para graficar la tendencia de cumplimiento.")
+        else:
+            st.markdown("**Tendencia (acumulado, % de la meta)**")
+            mercados_orden = sorted(tendencia["Mercado"].unique())
+            linea_cump = alt.Chart(tendencia).mark_line(
+                strokeWidth=2.5, point=alt.OverlayMarkDef(size=35, filled=True)
+            ).encode(
+                x=alt.X("Fecha:T", title=None, axis=alt.Axis(format=FMT_DIA)),
+                y=alt.Y("Cumplimiento:Q", title="Cumplimiento de la meta (%)", axis=alt.Axis(format=".0f")),
+                color=alt.Color(
+                    "Mercado:N", title="Mercado",
+                    scale=alt.Scale(domain=mercados_orden, range=PALETTE),
+                ),
+                tooltip=[
+                    alt.Tooltip("Mercado:N"),
+                    alt.Tooltip("Fecha:T", title="Fecha", format=FMT_DIA),
+                    alt.Tooltip("Cumplimiento:Q", title="Cumplimiento", format=".0f"),
+                    alt.Tooltip("Acumulado:Q", title="Cantidad acumulada", format="d"),
+                ],
+            )
+            regla_100_t = alt.Chart(pd.DataFrame({"Meta": [100]})).mark_rule(
+                color=INK_SOFT, strokeDash=[5, 4], strokeWidth=1.5
+            ).encode(y="Meta:Q")
+            st.altair_chart(style_chart(linea_cump + regla_100_t, 300), width="stretch")
+            st.caption("Cada línea es un mercado. La punteada horizontal = 100% de la meta.")
+
+        # --- 2º gráfico: cumplimiento actual (barras), foto de hoy. --------- #
+        st.markdown("**Cumplimiento actual**")
         cump = data_loader.breakdown(df_f, "Mercado")
         if cump.empty:
             st.info("Sin datos de «Mercado».")
