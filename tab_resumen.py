@@ -197,6 +197,52 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
 
         st.divider()
 
+    # --- Desgloses por dimensión ---------------------------------------- #
+    # Adaptativo: si el Form agrega o saca una pregunta tipo dropdown/radio,
+    # la columna aparece o desaparece sola acá (ver data_loader.detect_dimensions).
+    if dims:
+        st.subheader("🧭 Desglose")
+
+        def bar_dim(dim: str, value: str = "Cantidad"):
+            # "Cantidad" (suma de "Cantidad de Canje"), no "Registros" (nº de
+            # respuestas): así el total de las barras coincide con «Canjes
+            # efectivos» y con el gráfico de evolución de abajo.
+            bd = data_loader.breakdown(df_f, dim)
+            if bd.empty:
+                st.info(f"Sin datos de «{dim}».")
+                return
+            base = alt.Chart(bd).encode(
+                # labelLimit alto para que no corte nombres largos de mercado
+                # (p. ej. "Huáscar / Valle Sagrado"); labelOverlap=False para
+                # que Vega-Lite NO se salte etiquetas cuando "cree" que se
+                # van a superponer (con pocas categorías nunca se superponen
+                # de verdad, pero por defecto igual oculta algunas).
+                y=alt.Y(
+                    f"{dim}:N", sort="-x", title=None,
+                    axis=alt.Axis(labelLimit=280, labelOverlap=False, labelPadding=6),
+                ),
+                x=alt.X(f"{value}:Q", title="Cantidad de canje", axis=alt.Axis(format="d", tickMinStep=1)),
+                tooltip=[
+                    alt.Tooltip(f"{dim}:N", title=dim),
+                    alt.Tooltip("Cantidad:Q", title="Cantidad de canje", format="d"),
+                    alt.Tooltip("Registros:Q", title="Respuestas", format="d"),
+                ],
+            )
+            bars = base.mark_bar(color=ACCENT, cornerRadius=3)
+            labels = base.mark_text(align="left", dx=4, color=INK_SOFT, fontWeight="bold").encode(
+                text=alt.Text(f"{value}:Q", format="d")
+            )
+            st.altair_chart(
+                style_chart(bars + labels, max(160, 42 * len(bd))), width="stretch"
+            )
+
+        for col, dim in zip(st.columns(len(dims)), dims):
+            with col:
+                st.markdown(f"**Por {dim.lower()}**")
+                bar_dim(dim)
+
+        st.divider()
+
     # --- Evolución temporal (cantidad por día + acumulado, un solo gráfico) #
     # Las barras grafican "Cantidad" (suma de "Cantidad de Canje", NO cantidad
     # de respuestas) a propósito: así la suma de las barras coincide con el
@@ -270,48 +316,3 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
             "acumulada en el período — el último número coincide con la suma de las barras y con "
             f"«Canjes efectivos».{pie}"
         )
-
-    # --- Desgloses por dimensión ---------------------------------------- #
-    # Adaptativo: si el Form agrega o saca una pregunta tipo dropdown/radio,
-    # la columna aparece o desaparece sola acá (ver data_loader.detect_dimensions).
-    if dims:
-        st.divider()
-        st.subheader("🧭 Desglose")
-
-        def bar_dim(dim: str, value: str = "Cantidad"):
-            # "Cantidad" (suma de "Cantidad de Canje"), no "Registros" (nº de
-            # respuestas): así el total de las barras coincide con «Canjes
-            # efectivos» y con el gráfico de evolución de arriba.
-            bd = data_loader.breakdown(df_f, dim)
-            if bd.empty:
-                st.info(f"Sin datos de «{dim}».")
-                return
-            base = alt.Chart(bd).encode(
-                # labelLimit alto para que no corte nombres largos de mercado
-                # (p. ej. "Huáscar / Valle Sagrado"); labelOverlap=False para
-                # que Vega-Lite NO se salte etiquetas cuando "cree" que se
-                # van a superponer (con pocas categorías nunca se superponen
-                # de verdad, pero por defecto igual oculta algunas).
-                y=alt.Y(
-                    f"{dim}:N", sort="-x", title=None,
-                    axis=alt.Axis(labelLimit=280, labelOverlap=False, labelPadding=6),
-                ),
-                x=alt.X(f"{value}:Q", title="Cantidad de canje", axis=alt.Axis(format="d", tickMinStep=1)),
-                tooltip=[
-                    alt.Tooltip(f"{dim}:N", title=dim),
-                    alt.Tooltip("Cantidad:Q", title="Cantidad de canje", format="d"),
-                    alt.Tooltip("Registros:Q", title="Respuestas", format="d"),
-                ],
-            )
-            bars = base.mark_bar(color=ACCENT, cornerRadius=3)
-            labels = base.mark_text(align="left", dx=4, color=INK_SOFT, fontWeight="bold").encode(
-                text=alt.Text(f"{value}:Q", format="d")
-            )
-            st.altair_chart(
-                style_chart(bars + labels, max(160, 42 * len(bd))), width="stretch"
-            )
-
-        for col, dim in zip(st.columns(len(dims)), dims):
-            with col:
-                st.markdown(f"**Por {dim.lower()}**")
-                bar_dim(dim)
