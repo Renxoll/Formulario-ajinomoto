@@ -87,6 +87,14 @@ DIM_DISPLAY_NAMES = {
 # es "categórica" (es más bien texto libre) y no se ofrece como filtro.
 MAX_DIM_CARDINALITY = 30
 
+# Orden preferido de las dimensiones detectadas (filtros del sidebar, tarjetas
+# de KPI y "Desglose"). Las que están acá van primero, en este orden; el
+# resto de las que se detecten (dimensiones nuevas que el Form agregue)
+# quedan después, en el orden en que aparecen en el Sheet — no hace falta
+# tocar esto para que una dimensión nueva funcione, es sólo para las que
+# querés fijar adelante.
+DIM_PRIORITY = ["Zona", "Mercado"]
+
 # --------------------------------------------------------------------------- #
 # Meta de la campaña
 # --------------------------------------------------------------------------- #

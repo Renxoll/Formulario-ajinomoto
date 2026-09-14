@@ -13,7 +13,7 @@ import streamlit as st
 
 import config
 import data_loader
-from theme import ACCENT, GRID, INK_SOFT, PALETTE
+from theme import ACCENT, GRID, INK_SOFT
 
 # Formato de fecha para ejes/tooltips: sólo día y mes, sin hora (la hora no
 # aporta nada en una serie diaria).
@@ -114,6 +114,88 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
         st.caption("Los deltas comparan contra el período inmediatamente anterior de igual duración.")
 
     st.divider()
+
+    # --- Cumplimiento de meta, mercado a mercado (arriba de todo) -------- #
+    if "Mercado" in df_f.columns and config.META_POR_MERCADO:
+        st.subheader("🎯 Cumplimiento de meta por mercado")
+        st.caption(f"Meta: {config.META_POR_MERCADO:,} canjes por mercado.")
+
+        # --- 1º gráfico: canjes hechos vs. meta, barras HORIZONTALES (el
+        # mercado a la izquierda) con una línea VERTICAL en la meta (180) —
+        # así se ve de un vistazo por cuánto la pasaron o cuánto les falta.
+        cump_abs = data_loader.breakdown(df_f, "Mercado")
+        if cump_abs.empty:
+            st.info("Sin datos de «Mercado».")
+        else:
+            st.markdown("**Canjes hechos vs. meta**")
+            base_abs = alt.Chart(cump_abs).encode(
+                y=alt.Y(
+                    "Mercado:N", sort="-x", title=None,
+                    axis=alt.Axis(labelLimit=280, labelOverlap=False, labelPadding=6),
+                ),
+                x=alt.X("Cantidad:Q", title="Canjes hechos", axis=alt.Axis(format="d", tickMinStep=1)),
+                tooltip=[
+                    alt.Tooltip("Mercado:N"),
+                    alt.Tooltip("Cantidad:Q", title="Canjes hechos", format="d"),
+                ],
+            )
+            barras_abs = base_abs.mark_bar(color=ACCENT, cornerRadius=3)
+            etiquetas_abs = base_abs.mark_text(align="left", dx=4, color=INK_SOFT, fontWeight="bold").encode(
+                text=alt.Text("Cantidad:Q", format="d")
+            )
+            # Línea vertical en la meta absoluta (180), no en %.
+            regla_180 = alt.Chart(pd.DataFrame({"Meta": [config.META_POR_MERCADO]})).mark_rule(
+                color=INK_SOFT, strokeDash=[5, 4], strokeWidth=1.5
+            ).encode(x="Meta:Q", tooltip=[alt.Tooltip("Meta:Q", title="Meta")])
+
+            st.altair_chart(
+                style_chart(barras_abs + etiquetas_abs + regla_180, max(160, 42 * len(cump_abs))),
+                width="stretch",
+            )
+            st.caption(
+                f"Línea vertical = meta ({config.META_POR_MERCADO} canjes). Las barras que la cruzan ya "
+                "superaron la meta; las que no llegan muestran cuánto les falta."
+            )
+
+        # --- 2º gráfico: cumplimiento actual (%), barras verticales. ------- #
+        st.markdown("**Cumplimiento actual (%)**")
+        cump = data_loader.breakdown(df_f, "Mercado")
+        if cump.empty:
+            st.info("Sin datos de «Mercado».")
+        else:
+            cump = cump.copy()
+            cump["Cumplimiento"] = cump["Cantidad"] / config.META_POR_MERCADO * 100
+
+            # Barras VERTICALES (el mercado va abajo, en el eje X). labelAngle
+            # inclina los nombres largos para que entren sin superponerse;
+            # labelOverlap=False evita que Vega-Lite se salte alguno.
+            base_cump = alt.Chart(cump).transform_calculate(
+                etiqueta='format(datum.Cumplimiento, ".0f") + "%"'
+            ).encode(
+                x=alt.X(
+                    "Mercado:N", sort="-y", title=None,
+                    axis=alt.Axis(labelLimit=140, labelOverlap=False, labelAngle=-30),
+                ),
+                y=alt.Y("Cumplimiento:Q", title="Cumplimiento de la meta (%)", axis=alt.Axis(format=".0f")),
+                tooltip=[
+                    alt.Tooltip("Mercado:N"),
+                    alt.Tooltip("Cantidad:Q", title="Cantidad de canje", format="d"),
+                    alt.Tooltip("Cumplimiento:Q", title="Cumplimiento", format=".0f"),
+                ],
+            )
+            barras_cump = base_cump.mark_bar(color=ACCENT, cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+            etiquetas_cump = base_cump.mark_text(dy=-10, color=ACCENT, fontWeight="bold").encode(
+                text="etiqueta:N"
+            )
+            # Línea punteada en el 100% = meta cumplida.
+            regla_100 = alt.Chart(pd.DataFrame({"Meta": [100]})).mark_rule(
+                color=INK_SOFT, strokeDash=[5, 4], strokeWidth=1.5
+            ).encode(y="Meta:Q")
+
+            st.altair_chart(style_chart(barras_cump + etiquetas_cump + regla_100, 340), width="stretch")
+            st.caption(f"Línea punteada = 100% de la meta ({config.META_POR_MERCADO} canjes) en ese mercado.")
+
+        st.divider()
 
     # --- Evolución temporal (cantidad por día + acumulado, un solo gráfico) #
     # Las barras grafican "Cantidad" (suma de "Cantidad de Canje", NO cantidad
@@ -233,79 +315,3 @@ def render(df_f: pd.DataFrame, df_prev: pd.DataFrame | None, dims: list[str]) ->
             with col:
                 st.markdown(f"**Por {dim.lower()}**")
                 bar_dim(dim)
-
-    # --- Cumplimiento de meta, mercado a mercado ------------------------- #
-    if "Mercado" in df_f.columns and config.META_POR_MERCADO:
-        st.divider()
-        st.subheader("🎯 Cumplimiento de meta por mercado")
-        st.caption(f"Meta: {config.META_POR_MERCADO:,} canjes por mercado.")
-
-        # --- 1º gráfico: tendencia (línea) — misma construcción que
-        # "Evolución diaria y acumulada" de arriba (acumulado día a día, sin
-        # huecos), pero una línea POR mercado y en % de la meta.
-        tendencia = data_loader.cumplimiento_diario(df_f, "Mercado", config.META_POR_MERCADO)
-        if tendencia.empty:
-            st.info("Sin fechas válidas para graficar la tendencia de cumplimiento.")
-        else:
-            st.markdown("**Tendencia (acumulado, % de la meta)**")
-            mercados_orden = sorted(tendencia["Mercado"].unique())
-            linea_cump = alt.Chart(tendencia).mark_line(
-                strokeWidth=2.5, point=alt.OverlayMarkDef(size=35, filled=True)
-            ).encode(
-                x=alt.X("Fecha:T", title=None, axis=alt.Axis(format=FMT_DIA)),
-                y=alt.Y("Cumplimiento:Q", title="Cumplimiento de la meta (%)", axis=alt.Axis(format=".0f")),
-                color=alt.Color(
-                    "Mercado:N", title="Mercado",
-                    scale=alt.Scale(domain=mercados_orden, range=PALETTE),
-                ),
-                tooltip=[
-                    alt.Tooltip("Mercado:N"),
-                    alt.Tooltip("Fecha:T", title="Fecha", format=FMT_DIA),
-                    alt.Tooltip("Cumplimiento:Q", title="Cumplimiento", format=".0f"),
-                    alt.Tooltip("Acumulado:Q", title="Cantidad acumulada", format="d"),
-                ],
-            )
-            regla_100_t = alt.Chart(pd.DataFrame({"Meta": [100]})).mark_rule(
-                color=INK_SOFT, strokeDash=[5, 4], strokeWidth=1.5
-            ).encode(y="Meta:Q")
-            st.altair_chart(style_chart(linea_cump + regla_100_t, 300), width="stretch")
-            st.caption("Cada línea es un mercado. La punteada horizontal = 100% de la meta.")
-
-        # --- 2º gráfico: cumplimiento actual (barras), foto de hoy. --------- #
-        st.markdown("**Cumplimiento actual**")
-        cump = data_loader.breakdown(df_f, "Mercado")
-        if cump.empty:
-            st.info("Sin datos de «Mercado».")
-        else:
-            cump = cump.copy()
-            cump["Cumplimiento"] = cump["Cantidad"] / config.META_POR_MERCADO * 100
-
-            # Barras VERTICALES (el mercado va abajo, en el eje X) — antes eran
-            # horizontales. labelAngle inclina los nombres largos para que
-            # entren sin superponerse; labelOverlap=False evita que Vega-Lite
-            # se salte alguno.
-            base_cump = alt.Chart(cump).transform_calculate(
-                etiqueta='format(datum.Cumplimiento, ".0f") + "%"'
-            ).encode(
-                x=alt.X(
-                    "Mercado:N", sort="-y", title=None,
-                    axis=alt.Axis(labelLimit=140, labelOverlap=False, labelAngle=-30),
-                ),
-                y=alt.Y("Cumplimiento:Q", title="Cumplimiento de la meta (%)", axis=alt.Axis(format=".0f")),
-                tooltip=[
-                    alt.Tooltip("Mercado:N"),
-                    alt.Tooltip("Cantidad:Q", title="Cantidad de canje", format="d"),
-                    alt.Tooltip("Cumplimiento:Q", title="Cumplimiento", format=".0f"),
-                ],
-            )
-            barras_cump = base_cump.mark_bar(color=ACCENT, cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
-            etiquetas_cump = base_cump.mark_text(dy=-10, color=ACCENT, fontWeight="bold").encode(
-                text="etiqueta:N"
-            )
-            # Línea punteada en el 100% = meta cumplida.
-            regla_100 = alt.Chart(pd.DataFrame({"Meta": [100]})).mark_rule(
-                color=INK_SOFT, strokeDash=[5, 4], strokeWidth=1.5
-            ).encode(y="Meta:Q")
-
-            st.altair_chart(style_chart(barras_cump + etiquetas_cump + regla_100, 340), width="stretch")
-            st.caption(f"Línea punteada = 100% de la meta ({config.META_POR_MERCADO} canjes) en ese mercado.")
